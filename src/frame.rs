@@ -31,7 +31,11 @@ pub const BLACK: Rgb = Rgb(0, 0, 0);
 
 impl Default for Cell {
     fn default() -> Self {
-        Cell { ch: ' ', fg: BLACK, bg: BLACK }
+        Cell {
+            ch: ' ',
+            fg: BLACK,
+            bg: BLACK,
+        }
     }
 }
 

@@ -27,7 +27,10 @@ impl Terminal {
         terminal::enable_raw_mode()?;
         let mut out = BufWriter::new(io::stdout());
         execute!(out, terminal::EnterAlternateScreen, cursor::Hide)?;
-        Ok(Self { out, previous: None })
+        Ok(Self {
+            out,
+            previous: None,
+        })
     }
 
     pub fn size(&self) -> io::Result<(u16, u16)> {
@@ -89,7 +92,12 @@ impl Drop for Terminal {
 
 fn restore_terminal() {
     let mut out = io::stdout();
-    let _ = execute!(out, crossterm::style::ResetColor, cursor::Show, terminal::LeaveAlternateScreen);
+    let _ = execute!(
+        out,
+        crossterm::style::ResetColor,
+        cursor::Show,
+        terminal::LeaveAlternateScreen
+    );
     let _ = terminal::disable_raw_mode();
 }
 
@@ -105,5 +113,9 @@ fn install_panic_hook() {
 }
 
 fn to_color(c: Rgb) -> Color {
-    Color::Rgb { r: c.0, g: c.1, b: c.2 }
+    Color::Rgb {
+        r: c.0,
+        g: c.1,
+        b: c.2,
+    }
 }

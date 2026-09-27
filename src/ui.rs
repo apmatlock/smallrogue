@@ -11,7 +11,7 @@
 //! +--------------------------------------------+
 //! ```
 
-use crate::frame::{Cell, Frame, Rgb, BLACK};
+use crate::frame::{BLACK, Cell, Frame, Rgb};
 use crate::game::Game;
 use crate::geom::Point;
 use crate::map::Tile;
@@ -25,6 +25,8 @@ pub const MIN_HEIGHT: u16 = 16;
 const WALL_FG: Rgb = Rgb(120, 110, 100);
 const WALL_BG: Rgb = Rgb(28, 26, 24);
 const FLOOR_FG: Rgb = Rgb(70, 70, 70);
+const DOOR_FG: Rgb = Rgb(160, 110, 60);
+const STAIRS_FG: Rgb = Rgb(230, 200, 90);
 const PLAYER_FG: Rgb = Rgb(240, 230, 200);
 const TEXT: Rgb = Rgb(190, 190, 190);
 const TEXT_DIM: Rgb = Rgb(110, 110, 110);
@@ -36,7 +38,12 @@ pub fn draw(game: &Game, width: u16, height: u16) -> Frame {
 
     if width < MIN_WIDTH || height < MIN_HEIGHT {
         frame.print(0, 0, "Terminal too small.", TEXT);
-        frame.print(0, 1, &format!("Need at least {MIN_WIDTH}x{MIN_HEIGHT}."), TEXT_DIM);
+        frame.print(
+            0,
+            1,
+            &format!("Need at least {MIN_WIDTH}x{MIN_HEIGHT}."),
+            TEXT_DIM,
+        );
         return frame;
     }
 
@@ -78,20 +85,40 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
             if !game.map.in_bounds(p) {
                 continue;
             }
-            let cell = match game.map.tile(p) {
-                Tile::Wall => Cell { ch: '#', fg: WALL_FG, bg: WALL_BG },
-                Tile::Floor => Cell { ch: '.', fg: FLOOR_FG, bg: BLACK },
-            };
-            frame.set(sx, sy, cell);
+            frame.set(sx, sy, tile_cell(game.map.tile(p)));
         }
     }
 
     let s = game.player - origin;
-    frame.set(s.x, s.y, Cell { ch: '@', fg: PLAYER_FG, bg: BLACK });
+    frame.set(
+        s.x,
+        s.y,
+        Cell {
+            ch: '@',
+            fg: PLAYER_FG,
+            bg: BLACK,
+        },
+    );
+}
+
+/// How each kind of tile looks.
+fn tile_cell(tile: Tile) -> Cell {
+    let (ch, fg, bg) = match tile {
+        Tile::Wall => ('#', WALL_FG, WALL_BG),
+        Tile::Floor => ('.', FLOOR_FG, BLACK),
+        Tile::DoorClosed => ('+', DOOR_FG, BLACK),
+        Tile::DoorOpen => ('\'', DOOR_FG, BLACK),
+        Tile::StairsDown => ('>', STAIRS_FG, BLACK),
+    };
+    Cell { ch, fg, bg }
 }
 
 fn draw_dividers(frame: &mut Frame, view_w: i32, view_h: i32, w: i32) {
-    let line = |ch| Cell { ch, fg: BORDER, bg: BLACK };
+    let line = |ch| Cell {
+        ch,
+        fg: BORDER,
+        bg: BLACK,
+    };
     for y in 0..view_h {
         frame.set(view_w, y, line('│'));
     }
@@ -103,14 +130,16 @@ fn draw_dividers(frame: &mut Frame, view_w: i32, view_h: i32, w: i32) {
 
 fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, _width: i32) {
     frame.print(x, 0, "SMALLROGUE", TITLE);
-    frame.print(x, 2, "Depth: 1", TEXT);
+    frame.print(x, 2, &format!("Depth: {}", game.depth), TEXT);
     frame.print(x, 3, &format!("Turn:  {}", game.turn), TEXT);
-    frame.print(x, 4, &format!("Pos:   {},{}", game.player.x, game.player.y), TEXT_DIM);
+    frame.print(x, 4, &format!("Seed:  {}", game.seed), TEXT_DIM);
 
     let keys = [
         "hjkl/arrows  move",
         "yubn    diagonals",
         ".        wait",
+        ">        descend",
+        "c        close door",
         "q        quit",
     ];
     for (i, line) in keys.iter().enumerate() {
@@ -138,7 +167,7 @@ mod tests {
 
     #[test]
     fn newest_message_is_on_bottom_row() {
-        let mut game = Game::new();
+        let mut game = Game::new(1);
         game.log("newest");
         let frame = draw(&game, 80, 24);
         assert!(row_text(&frame, 23).contains("newest"));

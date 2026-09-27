@@ -10,15 +10,24 @@ use crate::geom::Point;
 pub enum Tile {
     Wall,
     Floor,
+    DoorClosed,
+    DoorOpen,
+    StairsDown,
 }
 
 impl Tile {
-    /// Can creatures walk onto this tile?
+    /// Can creatures step onto this tile right now? A closed door is
+    /// not walkable: it has to be opened first.
     pub fn is_walkable(self) -> bool {
-        match self {
-            Tile::Floor => true,
-            Tile::Wall => false,
-        }
+        // `matches!` is shorthand for a `match` that returns a bool.
+        matches!(self, Tile::Floor | Tile::DoorOpen | Tile::StairsDown)
+    }
+
+    /// Is this tile part of the dungeon's layout that creatures can
+    /// ever pass through, counting doors whether open or closed? Used
+    /// to check that every floor is fully connected.
+    pub fn is_passable(self) -> bool {
+        self.is_walkable() || self == Tile::DoorClosed
     }
 }
 
@@ -47,8 +56,7 @@ impl Map {
     /// Converts a point to a position in the flat `tiles` Vec,
     /// or `None` if the point is off the map.
     fn index(&self, p: Point) -> Option<usize> {
-        self.in_bounds(p)
-            .then(|| (p.y * self.width + p.x) as usize)
+        self.in_bounds(p).then(|| (p.y * self.width + p.x) as usize)
     }
 
     /// Returns the tile at `p`. Anything off the map counts as wall,
@@ -63,13 +71,9 @@ impl Map {
         }
     }
 
-    pub fn is_walkable(&self, p: Point) -> bool {
-        self.tile(p).is_walkable()
-    }
-
     // ---- Carving helpers --------------------------------------------
-    // These build the hand-made test map now, and the random dungeon
-    // generator will reuse them in milestone 2.
+    // Used by the dungeon generator and by tests that build small maps
+    // by hand.
 
     /// Turns a rectangle of tiles into floor. `x, y` is the top-left
     /// corner of the floor area.
@@ -111,8 +115,8 @@ mod tests {
     fn carving_makes_floor() {
         let mut map = Map::new_filled(10, 10);
         map.carve_room(2, 2, 3, 3);
-        assert!(map.is_walkable(Point::new(2, 2)));
-        assert!(map.is_walkable(Point::new(4, 4)));
-        assert!(!map.is_walkable(Point::new(5, 5)));
+        assert!(map.tile(Point::new(2, 2)).is_walkable());
+        assert!(map.tile(Point::new(4, 4)).is_walkable());
+        assert!(!map.tile(Point::new(5, 5)).is_walkable());
     }
 }
