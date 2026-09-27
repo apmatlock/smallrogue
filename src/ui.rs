@@ -106,6 +106,11 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
     // where a monster was: it may have moved.
     for m in game.monsters.iter().filter(|m| game.is_visible(m.pos)) {
         let s = m.pos - origin;
+        // On a small terminal a visible monster can be outside the map
+        // area; drawing it anyway would scribble over the sidebar.
+        if s.x < 0 || s.y < 0 || s.x >= view_w || s.y >= view_h {
+            continue;
+        }
         let species = m.species();
         frame.set(
             s.x,
@@ -233,6 +238,39 @@ mod tests {
         let frame = draw(&game, 80, 24);
         assert!(row_text(&frame, 23).contains("newest"));
         assert!(row_text(&frame, 22).contains("You descend"));
+    }
+
+    /// Finds a tile the player can see that lies outside the map area
+    /// of a small terminal, puts a rat there, and checks the rat is not
+    /// drawn over the sidebar or log.
+    #[test]
+    fn monsters_outside_the_map_view_are_not_drawn() {
+        use crate::monster::{Ai, Kind, Monster};
+        let (w, h) = (MIN_WIDTH, MIN_HEIGHT);
+        let view_w = w as i32 - SIDEBAR_WIDTH - 1;
+        let view_h = h as i32 - LOG_HEIGHT - 1;
+
+        for seed in 0..50 {
+            let mut game = Game::new(seed);
+            game.monsters.clear();
+            let origin = Point::new(
+                camera_origin(game.player.x, game.map.width(), view_w),
+                camera_origin(game.player.y, game.map.height(), view_h),
+            );
+            let outside = game.map.points().find(|&p| {
+                let s = p - origin;
+                let off_view = s.x >= view_w || s.y >= view_h;
+                let on_screen = s.x >= 0 && s.y >= 0 && s.x < w as i32 && s.y < h as i32;
+                game.is_visible(p) && off_view && on_screen && p != game.player
+            });
+            let Some(p) = outside else { continue };
+            game.monsters.push(Monster::new(Kind::Rat, p, Ai::Asleep));
+            let frame = draw(&game, w, h);
+            let s = p - origin;
+            assert_ne!(frame.get(s.x as u16, s.y as u16).ch, 'r', "seed {seed}");
+            return;
+        }
+        panic!("no seed produced a visible tile outside the view");
     }
 
     #[test]

@@ -26,10 +26,9 @@ const STEPS: [Point; 8] = [
 
 /// Finds the first step of a shortest path from `from` to `to`.
 ///
-/// `can_enter(p)` says whether a tile may be walked through. The goal
-/// itself is always allowed, so a monster can path to the player's
-/// tile even though it is occupied. Returns `None` if there is no path
-/// or `from == to`.
+/// `can_enter(p)` says whether a tile may be walked through, and is
+/// checked for the goal too: a goal the walker can't enter has no
+/// path. Returns `None` if there is no path or `from == to`.
 pub fn first_step(
     from: Point,
     to: Point,
@@ -61,13 +60,38 @@ pub fn first_step(
         for d in STEPS {
             let n = p + d;
             let unvisited = came_from.get(n) == Some(&None);
-            if unvisited && (n == to || can_enter(n)) {
+            if unvisited && can_enter(n) {
                 came_from.set(n, Some(p));
                 queue.push_back(n);
             }
         }
     }
     None
+}
+
+/// Every tile reachable from `from` (not counting `from` itself),
+/// walking only through tiles where `can_enter` is true.
+pub fn reachable(
+    from: Point,
+    width: i32,
+    height: i32,
+    can_enter: impl Fn(Point) -> bool,
+) -> Vec<Point> {
+    let mut seen = Grid::new(width, height, false);
+    seen.set(from, true);
+    let mut queue = VecDeque::from([from]);
+    let mut found = Vec::new();
+    while let Some(p) = queue.pop_front() {
+        for d in STEPS {
+            let n = p + d;
+            if seen.get(n) == Some(&false) && can_enter(n) {
+                seen.set(n, true);
+                found.push(n);
+                queue.push_back(n);
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -87,6 +111,13 @@ mod tests {
     fn no_path_returns_none() {
         let step = first_step(Point::new(0, 0), Point::new(4, 0), 5, 5, |p| p.x != 2);
         assert_eq!(step, None);
+    }
+
+    #[test]
+    fn reachable_stops_at_walls() {
+        let tiles = reachable(Point::new(0, 0), 5, 5, |p| p.x < 2);
+        assert_eq!(tiles.len(), 9); // a 2x5 strip, minus the start
+        assert!(tiles.iter().all(|p| p.x < 2));
     }
 
     #[test]

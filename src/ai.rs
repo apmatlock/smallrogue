@@ -70,12 +70,12 @@ impl Game {
                     self.log(&format!("The {name} loses track of you."));
                 }
                 Ai::Wandering {
-                    goal: self.random_floor_tile(),
+                    goal: self.new_wander_goal(i),
                 }
             }
             // Reached its wandering goal: pick a new one.
             Ai::Wandering { goal } if goal == self.monsters[i].pos => Ai::Wandering {
-                goal: self.random_floor_tile(),
+                goal: self.new_wander_goal(i),
             },
             other => other,
         };
@@ -93,8 +93,19 @@ impl Game {
             Ai::Wandering { goal } => goal,
             Ai::Asleep => return,
         };
-        if let Some(step) = self.monster_path_step(i, goal) {
-            self.monster_step(i, step);
+        match self.monster_path_step(i, goal) {
+            Some(step) => self.monster_step(i, step),
+            // No route, e.g. the goal is behind a door this monster
+            // can't open. Rather than stand there forever, head
+            // somewhere else next turn.
+            None if !sees => {
+                self.monsters[i].ai = Ai::Wandering {
+                    goal: self.new_wander_goal(i),
+                };
+            }
+            // Blocked while it can still see the player (usually by
+            // other monsters in the way): wait for a gap.
+            None => {}
         }
     }
 
@@ -106,7 +117,10 @@ impl Game {
         let can_enter = |p: Point| {
             let tile = self.map.tile(p);
             let passable = tile.is_walkable() || (opens_doors && tile == Tile::DoorClosed);
-            passable && p != self.player && self.monster_at(p).is_none()
+            // Other creatures block the way, except that the player's
+            // tile is allowed as the goal so hunters can path to them.
+            let occupied = (p != goal && p == self.player) || self.monster_at(p).is_some();
+            passable && !occupied
         };
         path::first_step(me.pos, goal, self.map.width(), self.map.height(), can_enter)
     }
@@ -114,6 +128,9 @@ impl Game {
     fn monster_step(&mut self, i: usize, step: Point) {
         let name = self.monsters[i].name();
         if self.map.tile(step) == Tile::DoorClosed {
+            if !self.monsters[i].species().opens_doors {
+                return;
+            }
             // Opening a door uses the monster's action.
             self.map.set_tile(step, Tile::DoorOpen);
             if self.is_visible(step) {
@@ -124,17 +141,20 @@ impl Game {
         }
     }
 
-    /// A random walkable tile, used as a wandering goal.
-    fn random_floor_tile(&mut self) -> Point {
-        for _ in 0..200 {
-            let p = Point::new(
-                self.rng.range(0, self.map.width()),
-                self.rng.range(0, self.map.height()),
-            );
-            if self.map.tile(p).is_walkable() {
-                return p;
-            }
+    /// Picks a random tile that monster `i` can actually walk to, so
+    /// it never sets off for somewhere it can't reach. Other monsters
+    /// are ignored here, since they move out of the way over time.
+    fn new_wander_goal(&mut self, i: usize) -> Point {
+        let me = &self.monsters[i];
+        let opens_doors = me.species().opens_doors;
+        let map = &self.map;
+        let tiles = path::reachable(me.pos, map.width(), map.height(), |p| {
+            let tile = map.tile(p);
+            tile.is_walkable() || (opens_doors && tile == Tile::DoorClosed)
+        });
+        if tiles.is_empty() {
+            return me.pos; // boxed in: stay put
         }
-        self.player // practically never reached
+        tiles[self.rng.index(tiles.len())]
     }
 }

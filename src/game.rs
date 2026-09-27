@@ -449,6 +449,43 @@ mod tests {
     }
 
     #[test]
+    fn unreachable_wander_goal_is_replaced() {
+        // A rat on the far side of the closed door, wanting to wander
+        // to the player's side, which it can never reach.
+        let mut game = corridor_game();
+        let goal = Point::new(2, 1);
+        let rat = add_monster(
+            &mut game,
+            Kind::Rat,
+            Point::new(5, 1),
+            Ai::Wandering { goal },
+        );
+        game.monsters[rat].energy = 0;
+        game.apply(Action::Wait);
+        // (4,1) is the only other tile the rat can reach.
+        let new_goal = Point::new(4, 1);
+        assert_eq!(game.monsters[rat].ai, Ai::Wandering { goal: new_goal });
+    }
+
+    #[test]
+    fn rats_do_not_open_a_door_they_are_hunting_toward() {
+        // The rat last saw the player in the doorway, then the player
+        // stepped back and closed the door.
+        let mut game = corridor_game();
+        let door = Point::new(3, 1);
+        add_monster(
+            &mut game,
+            Kind::Rat,
+            Point::new(4, 1),
+            Ai::Hunting { last_seen: door },
+        );
+        for _ in 0..5 {
+            game.apply(Action::Wait);
+        }
+        assert_eq!(game.map.tile(door), Tile::DoorClosed);
+    }
+
+    #[test]
     fn player_cannot_walk_into_a_monster() {
         let mut game = room_game();
         add_monster(&mut game, Kind::Rat, Point::new(3, 5), Ai::Asleep);
