@@ -96,3 +96,7 @@ The intended game is a grim, fast, endless fantasy crawl with short runs and dep
 - High scores, help, and balance
 
 See [DESIGN.md](DESIGN.md) for the design decisions and full milestone plan.
+
+## Credits
+
+This README was written by [Codex](https://openai.com/codex/), OpenAI's coding agent.
