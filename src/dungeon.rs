@@ -204,29 +204,25 @@ fn random_point_in(rng: &mut Rng, room: Rect) -> Point {
 mod tests {
     use super::*;
     use crate::geom::DIRECTIONS_8;
-
-    fn all_points(map: &Map) -> impl Iterator<Item = Point> + '_ {
-        (0..map.height).flat_map(move |y| (0..map.width).map(move |x| Point::new(x, y)))
-    }
+    use crate::grid::Grid;
 
     fn find_stairs(map: &Map) -> Point {
-        all_points(map)
+        map.points()
             .find(|&p| map.tile(p) == Tile::StairsDown)
             .expect("every floor has stairs")
     }
 
     /// Flood fill: marks every tile reachable from `start` through
     /// passable tiles (doors count as passable).
-    fn reachable(map: &Map, start: Point) -> Vec<bool> {
-        let mut seen = vec![false; (map.width * map.height) as usize];
-        let idx = |p: Point| (p.y * map.width + p.x) as usize;
-        seen[idx(start)] = true;
+    fn reachable(map: &Map, start: Point) -> Grid<bool> {
+        let mut seen = Grid::new(map.width(), map.height(), false);
+        seen.set(start, true);
         let mut frontier = vec![start];
         while let Some(p) = frontier.pop() {
             for d in DIRECTIONS_8 {
                 let n = p + d;
-                if map.tile(n).is_passable() && !seen[idx(n)] {
-                    seen[idx(n)] = true;
+                if map.tile(n).is_passable() && seen.get(n) == Some(&false) {
+                    seen.set(n, true);
                     frontier.push(n);
                 }
             }
@@ -240,9 +236,12 @@ mod tests {
             let level = generate(&mut Rng::new(seed), &STANDARD);
             let map = &level.map;
             let reach = reachable(map, level.start);
-            for p in all_points(map).filter(|&p| map.tile(p).is_passable()) {
-                let i = (p.y * map.width + p.x) as usize;
-                assert!(reach[i], "seed {seed}: {p:?} cannot be reached");
+            for p in map.points().filter(|&p| map.tile(p).is_passable()) {
+                assert_eq!(
+                    reach.get(p),
+                    Some(&true),
+                    "seed {seed}: {p:?} cannot be reached"
+                );
             }
         }
     }
@@ -252,13 +251,13 @@ mod tests {
         for seed in 0..100 {
             let level = generate(&mut Rng::new(seed), &STANDARD);
             let m = &level.map;
-            for x in 0..m.width {
+            for x in 0..m.width() {
                 assert_eq!(m.tile(Point::new(x, 0)), Tile::Wall);
-                assert_eq!(m.tile(Point::new(x, m.height - 1)), Tile::Wall);
+                assert_eq!(m.tile(Point::new(x, m.height() - 1)), Tile::Wall);
             }
-            for y in 0..m.height {
+            for y in 0..m.height() {
                 assert_eq!(m.tile(Point::new(0, y)), Tile::Wall);
-                assert_eq!(m.tile(Point::new(m.width - 1, y)), Tile::Wall);
+                assert_eq!(m.tile(Point::new(m.width() - 1, y)), Tile::Wall);
             }
             assert_ne!(level.start, find_stairs(m), "seed {seed}");
         }
@@ -277,7 +276,9 @@ mod tests {
         let doors: usize = (0..20)
             .map(|seed| {
                 let level = generate(&mut Rng::new(seed), &STANDARD);
-                all_points(&level.map)
+                level
+                    .map
+                    .points()
                     .filter(|&p| level.map.tile(p) == Tile::DoorClosed)
                     .count()
             })

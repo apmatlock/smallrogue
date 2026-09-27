@@ -24,7 +24,7 @@ pub const MIN_HEIGHT: u16 = 16;
 // A muted palette to suit the grim tone.
 const WALL_FG: Rgb = Rgb(120, 110, 100);
 const WALL_BG: Rgb = Rgb(28, 26, 24);
-const FLOOR_FG: Rgb = Rgb(70, 70, 70);
+const FLOOR_FG: Rgb = Rgb(105, 98, 88);
 const DOOR_FG: Rgb = Rgb(160, 110, 60);
 const STAIRS_FG: Rgb = Rgb(230, 200, 90);
 const PLAYER_FG: Rgb = Rgb(240, 230, 200);
@@ -75,17 +75,29 @@ fn camera_origin(player: i32, map_len: i32, view_len: i32) -> i32 {
 
 fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
     let origin = Point::new(
-        camera_origin(game.player.x, game.map.width, view_w),
-        camera_origin(game.player.y, game.map.height, view_h),
+        camera_origin(game.player.x, game.map.width(), view_w),
+        camera_origin(game.player.y, game.map.height(), view_h),
     );
 
     for sy in 0..view_h {
         for sx in 0..view_w {
             let p = origin + Point::new(sx, sy);
-            if !game.map.in_bounds(p) {
-                continue;
+            // Three cases: in sight (full color), remembered (cold and
+            // dim), or never seen (left blank).
+            if game.is_visible(p) {
+                frame.set(sx, sy, tile_cell(game.map.tile(p)));
+            } else if game.map.is_revealed(p) {
+                let cell = tile_cell(game.map.tile(p));
+                frame.set(
+                    sx,
+                    sy,
+                    Cell {
+                        fg: cell.fg.remembered(),
+                        bg: cell.bg.remembered(),
+                        ..cell
+                    },
+                );
             }
-            frame.set(sx, sy, tile_cell(game.map.tile(p)));
         }
     }
 

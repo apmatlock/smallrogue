@@ -5,9 +5,14 @@
 //! easy to test, to save later, and to draw with tiles someday.
 
 use crate::dungeon;
+use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
+use crate::grid::Grid;
 use crate::map::{Map, Tile};
 use crate::rng::{self, Rng};
+
+/// How far the player can see, in tiles.
+pub const VIEW_RADIUS: i32 = 8;
 
 /// Something the player asked to do. The input module turns key
 /// presses into these, so the game never sees raw keys.
@@ -31,6 +36,9 @@ pub struct Game {
     /// The run's seed. Each floor's layout is derived from it, so the
     /// same seed always produces the same dungeon.
     pub seed: u64,
+    /// Tiles the player can see right now. Recomputed after every
+    /// action, because moving or opening a door changes it.
+    visible: Grid<bool>,
 }
 
 impl Game {
@@ -42,9 +50,11 @@ impl Game {
             turn: 0,
             depth: 0,
             seed,
+            visible: Grid::new(1, 1, false),
         };
         game.enter_floor(1);
         game.log("You descend into the dark.");
+        game.update_fov();
         game
     }
 
@@ -55,9 +65,49 @@ impl Game {
         // what random events happened on floors 1 to 4.
         let mut floor_rng = Rng::new(rng::mix(self.seed, depth as u64));
         let level = dungeon::generate(&mut floor_rng, &dungeon::STANDARD);
-        self.map = level.map;
-        self.player = level.start;
+        self.place_on_map(level.map, level.start);
         self.depth = depth;
+    }
+
+    /// Swaps in a new map with the player at `at`, resetting what is
+    /// visible to match the new map's size.
+    fn place_on_map(&mut self, map: Map, at: Point) {
+        self.visible = Grid::new(map.width(), map.height(), false);
+        self.map = map;
+        self.player = at;
+    }
+
+    /// Recalculates what the player sees and adds it to the map's
+    /// memory.
+    fn update_fov(&mut self) {
+        self.visible.fill(false);
+
+        // Borrow the two fields separately: the closures read the map
+        // and write `visible` at the same time, which Rust allows
+        // because they are different fields.
+        let map = &self.map;
+        let visible = &mut self.visible;
+        fov::compute(
+            self.player,
+            VIEW_RADIUS,
+            |p| map.tile(p).blocks_sight(),
+            |p| visible.set(p, true),
+        );
+
+        let mut spotted_stairs = false;
+        for p in self.map.points() {
+            if self.is_visible(p) && !self.map.is_revealed(p) {
+                self.map.reveal(p);
+                spotted_stairs |= self.map.tile(p) == Tile::StairsDown;
+            }
+        }
+        if spotted_stairs {
+            self.log("You see a staircase leading down.");
+        }
+    }
+
+    pub fn is_visible(&self, p: Point) -> bool {
+        self.visible.get(p).copied().unwrap_or(false)
     }
 
     /// Applies one player action. Only actions that take time advance
@@ -88,6 +138,7 @@ impl Game {
                 }
             }
         }
+        self.update_fov();
     }
 
     fn move_player(&mut self, delta: Point) {
@@ -144,8 +195,9 @@ mod tests {
         map.carve_h_corridor(1, 5, 1);
         map.set_tile(Point::new(3, 1), Tile::DoorClosed);
         map.set_tile(Point::new(5, 1), Tile::StairsDown);
-        game.map = map;
-        game.player = Point::new(1, 1);
+        game.place_on_map(map, Point::new(1, 1));
+        game.log.clear();
+        game.update_fov();
         game
     }
 
@@ -191,8 +243,34 @@ mod tests {
         game.player = Point::new(5, 1);
         game.apply(Action::Descend);
         assert_eq!(game.depth, 2);
-        assert_eq!(game.map.width, dungeon::STANDARD.width);
+        assert_eq!(game.map.width(), dungeon::STANDARD.width);
         assert!(game.map.tile(game.player).is_walkable());
+    }
+
+    #[test]
+    fn closed_doors_block_sight_until_opened() {
+        let mut game = corridor_game();
+        let beyond = Point::new(4, 1);
+        assert!(!game.is_visible(beyond));
+        assert!(!game.map.is_revealed(beyond));
+
+        game.apply(Action::Move(EAST)); // step next to the door
+        game.apply(Action::Move(EAST)); // open it
+        assert!(game.is_visible(beyond));
+        assert!(game.map.is_revealed(beyond));
+        assert!(game.log.iter().any(|m| m.contains("staircase")));
+    }
+
+    #[test]
+    fn remembered_tiles_stay_revealed_after_losing_sight() {
+        let mut game = corridor_game();
+        game.apply(Action::Move(EAST));
+        game.apply(Action::Move(EAST)); // open the door
+        game.player = Point::new(2, 1);
+        game.apply(Action::Close(EAST));
+        let beyond = Point::new(4, 1);
+        assert!(!game.is_visible(beyond));
+        assert!(game.map.is_revealed(beyond));
     }
 
     #[test]

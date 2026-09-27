@@ -3,7 +3,9 @@
 //! Module overview:
 //! - `geom`    — points, directions and rectangles
 //! - `rng`     — seedable random numbers
-//! - `map`     — the tile grid
+//! - `grid`    — a generic one-value-per-tile container
+//! - `map`     — the tile layout and the player's memory of it
+//! - `fov`     — field of view (what can be seen from where)
 //! - `dungeon` — random floor generation
 //! - `game`    — game state and rules (no terminal code)
 //! - `frame`   — a backend-independent screen picture
@@ -14,9 +16,11 @@
 //! Run with `cargo run -- --seed 1234` to replay a specific dungeon.
 
 mod dungeon;
+mod fov;
 mod frame;
 mod game;
 mod geom;
+mod grid;
 mod input;
 mod map;
 mod rng;

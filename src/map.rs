@@ -1,6 +1,8 @@
-//! The dungeon map: a rectangular grid of tiles.
+//! The dungeon map: the tile layout of one floor, plus what the player
+//! remembers of it.
 
 use crate::geom::Point;
+use crate::grid::Grid;
 
 /// What a single map square is made of.
 ///
@@ -29,46 +31,58 @@ impl Tile {
     pub fn is_passable(self) -> bool {
         self.is_walkable() || self == Tile::DoorClosed
     }
+
+    /// Does this tile stop line of sight?
+    pub fn blocks_sight(self) -> bool {
+        matches!(self, Tile::Wall | Tile::DoorClosed)
+    }
 }
 
 pub struct Map {
-    pub width: i32,
-    pub height: i32,
-    /// Tiles stored row by row in one flat Vec. A single allocation is
-    /// faster and more cache friendly than a Vec of Vecs.
-    tiles: Vec<Tile>,
+    tiles: Grid<Tile>,
+    /// Tiles the player has seen at some point on this floor. They
+    /// stay drawn, dimmed, after going out of view.
+    revealed: Grid<bool>,
 }
 
 impl Map {
     /// Creates a map that is solid wall everywhere.
     pub fn new_filled(width: i32, height: i32) -> Self {
         Self {
-            width,
-            height,
-            tiles: vec![Tile::Wall; (width * height) as usize],
+            tiles: Grid::new(width, height, Tile::Wall),
+            revealed: Grid::new(width, height, false),
         }
     }
 
-    pub fn in_bounds(&self, p: Point) -> bool {
-        p.x >= 0 && p.y >= 0 && p.x < self.width && p.y < self.height
+    pub fn width(&self) -> i32 {
+        self.tiles.width()
     }
 
-    /// Converts a point to a position in the flat `tiles` Vec,
-    /// or `None` if the point is off the map.
-    fn index(&self, p: Point) -> Option<usize> {
-        self.in_bounds(p).then(|| (p.y * self.width + p.x) as usize)
+    pub fn height(&self) -> i32 {
+        self.tiles.height()
     }
 
     /// Returns the tile at `p`. Anything off the map counts as wall,
     /// so callers never need to bounds-check first.
     pub fn tile(&self, p: Point) -> Tile {
-        self.index(p).map_or(Tile::Wall, |i| self.tiles[i])
+        self.tiles.get(p).copied().unwrap_or(Tile::Wall)
     }
 
     pub fn set_tile(&mut self, p: Point, tile: Tile) {
-        if let Some(i) = self.index(p) {
-            self.tiles[i] = tile;
-        }
+        self.tiles.set(p, tile);
+    }
+
+    pub fn is_revealed(&self, p: Point) -> bool {
+        self.revealed.get(p).copied().unwrap_or(false)
+    }
+
+    pub fn reveal(&mut self, p: Point) {
+        self.revealed.set(p, true);
+    }
+
+    /// Every point on the map, row by row.
+    pub fn points(&self) -> impl Iterator<Item = Point> + use<> {
+        self.tiles.points()
     }
 
     // ---- Carving helpers --------------------------------------------

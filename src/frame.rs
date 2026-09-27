@@ -10,12 +10,13 @@
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
-    /// Scales brightness, e.g. `0.5` for half as bright. Used later for
-    /// remembered-but-not-visible tiles.
-    #[allow(dead_code)]
-    pub fn dim(self, factor: f32) -> Rgb {
-        let f = |c: u8| (c as f32 * factor).round().clamp(0.0, 255.0) as u8;
-        Rgb(f(self.0), f(self.1), f(self.2))
+    /// A dark, cold version of this color, used for remembered tiles
+    /// that are out of sight. It keeps the brightness but drains the
+    /// warmth, so memory reads as "old information" at a glance.
+    pub fn remembered(self) -> Rgb {
+        let brightness = (self.0 as u32 + self.1 as u32 + self.2 as u32) / 3;
+        let scale = |percent: u32| (brightness * percent / 100) as u8;
+        Rgb(scale(35), scale(38), scale(50))
     }
 }
 
