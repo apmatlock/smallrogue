@@ -42,6 +42,10 @@ pub const STANDARD: FloorParams = FloorParams {
 pub struct Level {
     pub map: Map,
     pub start: Point,
+    /// Every room's floor area, used to place monsters and items.
+    pub rooms: Vec<Rect>,
+    /// The room the player starts in, which stays monster-free.
+    pub start_room: Rect,
 }
 
 /// Builds a random floor. Every call with an `Rng` in the same state
@@ -82,7 +86,12 @@ fn try_generate(rng: &mut Rng, params: &FloorParams) -> Option<Level> {
         .copied()?;
     map.set_tile(random_point_in(rng, stairs_room), Tile::StairsDown);
 
-    Some(Level { map, start })
+    Some(Level {
+        map,
+        start,
+        rooms,
+        start_room,
+    })
 }
 
 fn place_rooms(rng: &mut Rng, p: &FloorParams) -> Vec<Rect> {
@@ -193,7 +202,7 @@ fn add_doors(rng: &mut Rng, map: &mut Map, room: &Rect, door_percent: i32) {
     }
 }
 
-fn random_point_in(rng: &mut Rng, room: Rect) -> Point {
+pub fn random_point_in(rng: &mut Rng, room: Rect) -> Point {
     Point::new(
         rng.range(room.x, room.x + room.w),
         rng.range(room.y, room.y + room.h),

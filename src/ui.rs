@@ -15,6 +15,7 @@ use crate::frame::{BLACK, Cell, Frame, Rgb};
 use crate::game::Game;
 use crate::geom::Point;
 use crate::map::Tile;
+use crate::monster::{Ai, Monster};
 
 const SIDEBAR_WIDTH: i32 = 22;
 const LOG_HEIGHT: i32 = 4;
@@ -53,7 +54,7 @@ pub fn draw(game: &Game, width: u16, height: u16) -> Frame {
 
     draw_map(&mut frame, game, view_w, view_h);
     draw_dividers(&mut frame, view_w, view_h, w);
-    draw_sidebar(&mut frame, game, view_w + 2, SIDEBAR_WIDTH - 1);
+    draw_sidebar(&mut frame, game, view_w + 2, view_h);
     draw_log(&mut frame, game, view_h + 1);
     frame
 }
@@ -101,6 +102,22 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
         }
     }
 
+    // Monsters are only drawn while in sight. There is no memory of
+    // where a monster was: it may have moved.
+    for m in game.monsters.iter().filter(|m| game.is_visible(m.pos)) {
+        let s = m.pos - origin;
+        let species = m.species();
+        frame.set(
+            s.x,
+            s.y,
+            Cell {
+                ch: species.glyph,
+                fg: species.color,
+                bg: BLACK,
+            },
+        );
+    }
+
     let s = game.player - origin;
     frame.set(
         s.x,
@@ -140,12 +157,13 @@ fn draw_dividers(frame: &mut Frame, view_w: i32, view_h: i32, w: i32) {
     frame.set(view_w, view_h, line('┴'));
 }
 
-fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, _width: i32) {
+fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     frame.print(x, 0, "SMALLROGUE", TITLE);
     frame.print(x, 2, &format!("Depth: {}", game.depth), TEXT);
     frame.print(x, 3, &format!("Turn:  {}", game.turn), TEXT);
     frame.print(x, 4, &format!("Seed:  {}", game.seed), TEXT_DIM);
 
+    // Key help sits at the bottom of the sidebar.
     let keys = [
         "hjkl/arrows  move",
         "yubn    diagonals",
@@ -154,8 +172,39 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, _width: i32) {
         "c        close door",
         "q        quit",
     ];
+    let keys_top = height - keys.len() as i32;
     for (i, line) in keys.iter().enumerate() {
-        frame.print(x, 7 + i as i32, line, TEXT_DIM);
+        frame.print(x, keys_top + i as i32, line, TEXT_DIM);
+    }
+
+    // Monsters in view, nearest first, in the space between.
+    let mut in_view: Vec<&Monster> = game
+        .monsters
+        .iter()
+        .filter(|m| game.is_visible(m.pos))
+        .collect();
+    in_view.sort_by_key(|m| m.pos.dist_sq(game.player));
+    let list_top = 6;
+    let room = (keys_top - 1 - list_top).max(0) as usize;
+    for (i, m) in in_view.iter().take(room).enumerate() {
+        let y = list_top + i as i32;
+        let species = m.species();
+        frame.set(
+            x,
+            y,
+            Cell {
+                ch: species.glyph,
+                fg: species.color,
+                bg: BLACK,
+            },
+        );
+        let state = match m.ai {
+            Ai::Asleep => "asleep",
+            Ai::Wandering { .. } => "wandering",
+            Ai::Hunting { .. } => "hunting",
+        };
+        frame.print(x + 2, y, species.name, TEXT);
+        frame.print(x + 10, y, state, TEXT_DIM);
     }
 }
 

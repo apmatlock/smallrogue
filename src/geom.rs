@@ -25,6 +25,12 @@ impl Point {
         let d = self - other;
         d.x * d.x + d.y * d.y
     }
+
+    /// True if `other` is one of the eight tiles touching this one.
+    pub fn is_adjacent(self, other: Point) -> bool {
+        let d = self - other;
+        self != other && d.x.abs() <= 1 && d.y.abs() <= 1
+    }
 }
 
 /// The eight neighboring directions, clockwise from north.

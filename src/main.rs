@@ -7,6 +7,9 @@
 //! - `map`     — the tile layout and the player's memory of it
 //! - `fov`     — field of view (what can be seen from where)
 //! - `dungeon` — random floor generation
+//! - `monster` — monster kinds, their data, and spawning
+//! - `path`    — pathfinding around walls
+//! - `ai`      — what monsters do on their turn
 //! - `game`    — game state and rules (no terminal code)
 //! - `frame`   — a backend-independent screen picture
 //! - `ui`      — lays out the game into a frame
@@ -15,6 +18,7 @@
 //!
 //! Run with `cargo run -- --seed 1234` to replay a specific dungeon.
 
+mod ai;
 mod dungeon;
 mod fov;
 mod frame;
@@ -23,6 +27,8 @@ mod geom;
 mod grid;
 mod input;
 mod map;
+mod monster;
+mod path;
 mod rng;
 mod term;
 mod ui;
