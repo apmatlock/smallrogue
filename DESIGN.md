@@ -91,7 +91,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | # | Milestone | Playable result |
 |---|---|---|
 | 0 | Setup | Rust installed, `@` moves around the screen ✅ |
-| 1 | Map and rendering | Walk around a hand-made map with walls and colors, with a scrolling view |
+| 1 | Map and rendering | Walk around a hand-made map with walls and colors, with a scrolling view ✅ |
 | 2 | Dungeon generation | Every floor is a new random set of rooms, corridors and doors. Stairs take you deeper |
 | 3 | Field of view | You only see what is in sight. Explored areas remain dim |
 | 4 | Monsters and turns | Monsters wander, spot you and chase you. Speed differences work |
