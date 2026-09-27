@@ -201,9 +201,15 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         "c        close door",
         "q        quit",
     ];
+    // On short terminals the help would cover the status above, which
+    // matters more, so it is left out.
+    let list_top = 7;
     let keys_top = height - keys.len() as i32;
-    for (i, line) in keys.iter().enumerate() {
-        frame.print(x, keys_top + i as i32, line, TEXT_DIM);
+    let show_keys = keys_top >= list_top;
+    if show_keys {
+        for (i, line) in keys.iter().enumerate() {
+            frame.print(x, keys_top + i as i32, line, TEXT_DIM);
+        }
     }
 
     // Monsters in view, nearest first, in the space between. Each gets
@@ -214,8 +220,8 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         .filter(|m| game.is_visible(m.pos))
         .collect();
     in_view.sort_by_key(|m| m.pos.dist_sq(game.player.pos));
-    let list_top = 7;
-    let room = (keys_top - 1 - list_top).max(0) as usize;
+    let list_bottom = if show_keys { keys_top - 1 } else { height };
+    let room = (list_bottom - list_top).max(0) as usize;
     for (i, m) in in_view.iter().take(room).enumerate() {
         let y = list_top + i as i32;
         let species = m.species();
@@ -376,6 +382,16 @@ mod tests {
             return;
         }
         panic!("no seed produced a visible tile outside the view");
+    }
+
+    #[test]
+    fn status_stays_readable_on_the_smallest_terminal() {
+        let game = Game::new(1);
+        for height in MIN_HEIGHT..MIN_HEIGHT + 12 {
+            let frame = draw(&game, MIN_WIDTH, height);
+            assert!(row_text(&frame, 4).contains("Depth 1"), "height {height}");
+            assert!(row_text(&frame, 5).contains("Seed 1"), "height {height}");
+        }
     }
 
     #[test]
