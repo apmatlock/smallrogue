@@ -329,8 +329,23 @@ mod tests {
         game.player.hp = 1;
         let decay = give(&mut game, ItemKind::Potion(PotionKind::Decay));
         game.apply(Action::Drink(decay));
-        let cause = game.death.expect("1 health can't survive decay");
-        assert!(cause.starts_with("Killed by a potion of decay"), "{cause}");
+        let cause = game.death_summary().expect("1 health can't survive decay");
+        assert_eq!(
+            cause,
+            "Killed by a potion of decay on depth 1 after 1 turns."
+        );
+    }
+
+    #[test]
+    fn a_fatal_potion_on_a_healing_turn_stays_fatal() {
+        let mut game = room_game();
+        game.player.hp = 1;
+        // The drink will land exactly on a turn when healing happens.
+        game.turn = crate::game::REGEN_INTERVAL - 1;
+        let decay = give(&mut game, ItemKind::Potion(PotionKind::Decay));
+        game.apply(Action::Drink(decay));
+        assert!(game.death.is_some());
+        assert_eq!(game.player.hp, 0);
     }
 
     #[test]

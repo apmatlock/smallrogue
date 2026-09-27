@@ -96,7 +96,6 @@ fn run(seed: u64) -> io::Result<()> {
             Command::Inventory => show_inventory(&mut terminal, &mut game)?,
             Command::Help => {
                 show_box(&mut terminal, &game, "Keys", &ui::help_lines())?;
-                input::next_menu_key()?;
             }
             Command::Redraw => {}
             Command::Quit => {
@@ -114,9 +113,25 @@ fn draw(terminal: &mut Terminal, game: &Game) -> io::Result<()> {
     terminal.present(ui::draw(game, w, h))
 }
 
-fn show_box(terminal: &mut Terminal, game: &Game, title: &str, lines: &[Line]) -> io::Result<()> {
-    let (w, h) = terminal.size()?;
-    terminal.present(ui::draw_with_box(game, w, h, title, lines))
+/// Shows a box over the map and waits for a key, turning pages when
+/// the lines don't fit: space or > goes forward, < goes back. Returns
+/// the first other key (`None` for Escape and the like).
+fn show_box(
+    terminal: &mut Terminal,
+    game: &Game,
+    title: &str,
+    lines: &[Line],
+) -> io::Result<Option<char>> {
+    let mut page = 0;
+    loop {
+        let (frame, pages) = ui::draw_with_box(game, terminal.size()?, title, lines, page);
+        terminal.present(frame)?;
+        match input::next_menu_key()? {
+            Some(' ' | '>') if pages > 1 => page = (page + 1) % pages,
+            Some('<') if pages > 1 => page = (page + pages - 1) % pages,
+            key => return Ok(key),
+        }
+    }
 }
 
 /// Shows a list of items and waits for a letter. Returns the letter if
@@ -127,8 +142,8 @@ fn choose_item(
     title: &str,
     show: impl Fn(&Item) -> bool,
 ) -> io::Result<Option<char>> {
-    show_box(terminal, game, title, &ui::item_list(game, &show))?;
-    Ok(input::next_menu_key()?.filter(|&c| game.player.item(c).is_some_and(&show)))
+    let key = show_box(terminal, game, title, &ui::item_list(game, &show))?;
+    Ok(key.filter(|&c| game.player.item(c).is_some_and(&show)))
 }
 
 /// A test for which items a menu should list.
@@ -211,9 +226,8 @@ fn show_inventory(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
         .expect("chosen from the pack")
         .clone();
     let title = format!("{}) {}", item.letter, item.name());
-    show_box(terminal, game, &title, &ui::item_details(&item))?;
-
-    let verb = match (input::next_menu_key()?, item.kind) {
+    let key = show_box(terminal, game, &title, &ui::item_details(&item))?;
+    let verb = match (key, item.kind) {
         (Some('d'), _) => Verb::Drop,
         (Some('e'), ItemKind::Weapon(_) | ItemKind::Armor(_)) => Verb::Equip,
         (Some('q'), ItemKind::Potion(_)) => Verb::Drink,
@@ -229,8 +243,7 @@ fn confirm_quit(terminal: &mut Terminal, game: &mut Game) -> io::Result<bool> {
         "This ends the run. Press y to quit.",
         frame::Rgb(190, 190, 190),
     )];
-    show_box(terminal, game, "Quit?", &lines)?;
-    Ok(input::next_menu_key()? == Some('y'))
+    Ok(show_box(terminal, game, "Quit?", &lines)? == Some('y'))
 }
 
 /// Closes an adjacent door, asking for a direction only when there is

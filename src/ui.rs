@@ -71,13 +71,22 @@ fn map_area(width: u16, height: u16) -> (i32, i32) {
     (view_w, view_h)
 }
 
-/// The normal game screen with a pop-up box over the map.
-pub fn draw_with_box(game: &Game, width: u16, height: u16, title: &str, lines: &[Line]) -> Frame {
+/// The normal game screen with a pop-up box over the map, showing
+/// `page` of the box's lines. Also returns how many pages there are.
+pub fn draw_with_box(
+    game: &Game,
+    size: (u16, u16),
+    title: &str,
+    lines: &[Line],
+    page: usize,
+) -> (Frame, usize) {
+    let (width, height) = size;
     let mut frame = draw(game, width, height);
+    let mut pages = 1;
     if width >= MIN_WIDTH && height >= MIN_HEIGHT {
-        menu::draw_box(&mut frame, map_area(width, height), title, lines);
+        pages = menu::draw_box(&mut frame, map_area(width, height), title, lines, page);
     }
-    frame
+    (frame, pages)
 }
 
 /// A line per item, like "a) sword (wielded)". Only items for which
@@ -413,11 +422,13 @@ pub fn draw_death(game: &Game, width: u16, height: u16) -> Frame {
     let (w, h) = (width as i32, height as i32);
     let center = |text: &str| (w - text.chars().count() as i32).max(0) / 2;
 
-    let cause = game.death.as_deref().unwrap_or("You died.");
+    let cause = game
+        .death_summary()
+        .unwrap_or_else(|| "You died.".to_string());
     let lines: Vec<(String, Rgb)> = vec![
         ("You have died.".to_string(), TITLE),
         (String::new(), TEXT),
-        (cause.to_string(), TEXT),
+        (cause, TEXT),
         (format!("Seed {}", game.seed), TEXT_DIM),
         (String::new(), TEXT),
     ];
@@ -504,10 +515,46 @@ mod tests {
         }
     }
 
+    /// Collects every screen row from every page of a box.
+    fn all_pages(game: &Game, size: (u16, u16), lines: &[Line]) -> String {
+        let (_, pages) = draw_with_box(game, size, "T", lines, 0);
+        (0..pages)
+            .flat_map(|page| {
+                let (frame, _) = draw_with_box(game, size, "T", lines, page);
+                (0..size.1).map(move |y| row_text(&frame, y))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_menu_line_is_reachable_by_paging() {
+        use crate::item::{Item, ItemKind, WeaponKind};
+        let mut game = Game::new(1);
+        while game.player.inventory.len() < crate::player::PACK_SIZE {
+            let dagger = Item::new(ItemKind::Weapon(WeaponKind::Dagger));
+            game.player.add_item(dagger).unwrap();
+        }
+        let pack = all_pages(&game, (80, 24), &item_list(&game, |_| true));
+        for letter in 'a'..='z' {
+            assert!(
+                pack.contains(&format!("{letter}) ")),
+                "item {letter} never shown"
+            );
+        }
+
+        let help = all_pages(&game, (MIN_WIDTH, MIN_HEIGHT), &help_lines());
+        for line in help_lines() {
+            // Lines may be clipped on the right at this width; the key
+            // column at the start must still show.
+            let start: String = line.text.chars().take(10).collect();
+            assert!(help.contains(&start), "help line {start:?} never shown");
+        }
+    }
+
     #[test]
     fn death_screen_shows_the_cause() {
         let mut game = Game::new(1);
-        game.death = Some("Killed by a rat on depth 1 after 5 turns.".to_string());
+        game.death = Some("a rat".to_string());
         let frame = draw_death(&game, 80, 24);
         let text: String = (0..24).map(|y| row_text(&frame, y)).collect();
         assert!(text.contains("You have died."));

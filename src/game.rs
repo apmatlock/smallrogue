@@ -83,8 +83,8 @@ pub struct Game {
     pub player: Player,
     /// Messages shown in the log, oldest first.
     pub log: Vec<Message>,
-    /// Set when the player dies, describing how. Once set, the game
-    /// ignores further actions.
+    /// Set when the player dies, naming what did it, e.g. "a jackal".
+    /// Once set, the game ignores further actions.
     pub death: Option<String>,
     pub turn: u64,
     pub depth: u32,
@@ -198,6 +198,11 @@ impl Game {
             return;
         }
         self.turn += 1;
+        // A fatal action (drinking decay, say) still used its turn, but
+        // nothing happens after it: no healing, no monster moves.
+        if self.death.is_some() {
+            return;
+        }
         if self.turn.is_multiple_of(REGEN_INTERVAL) {
             self.player.hp = (self.player.hp + 1).min(self.player.max_hp);
         }
@@ -321,10 +326,18 @@ impl Game {
     pub(crate) fn kill_player(&mut self, killer: &str) {
         self.player.hp = 0;
         self.log_as("You die...", MsgKind::Bad);
-        self.death = Some(format!(
+        self.death = Some(killer.to_string());
+    }
+
+    /// One sentence summing up the death, or `None` while alive. Built
+    /// when asked rather than at the moment of death, so the turn
+    /// count includes the fatal turn.
+    pub fn death_summary(&self) -> Option<String> {
+        let killer = self.death.as_ref()?;
+        Some(format!(
             "Killed by {killer} on depth {} after {} turns.",
             self.depth, self.turn
-        ));
+        ))
     }
 
     pub fn monster_at(&self, p: Point) -> Option<&Monster> {
@@ -656,8 +669,7 @@ mod tests {
             }
         }
         let cause = game
-            .death
-            .clone()
+            .death_summary()
             .expect("the jackal should win eventually");
         assert!(
             cause.starts_with("Killed by a jackal on depth 1"),
