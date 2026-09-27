@@ -9,10 +9,12 @@ use crate::dungeon;
 use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::grid::Grid;
+use crate::item::{self, FloorItem};
 use crate::map::{Map, Tile};
 use crate::monster::{self, Ai, Monster};
 use crate::player::Player;
 use crate::rng::{self, Rng};
+use crate::text::article;
 
 /// How far the player can see, in tiles.
 pub const VIEW_RADIUS: i32 = 8;
@@ -42,7 +44,7 @@ pub struct Message {
 /// Whether a player action used up time. Only actions that take time
 /// let the monsters move.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Outcome {
+pub(crate) enum Outcome {
     /// Nothing happened, e.g. walking into a wall.
     Free,
     /// A normal action that takes one turn.
@@ -61,6 +63,19 @@ pub enum Action {
     Descend,
     /// Close the door in this direction.
     Close(Point),
+    /// Pick up the item underfoot.
+    PickUp,
+    /// The `char`s below are inventory letters.
+    Drop(char),
+    /// Equip a weapon or armor, or take it off if already equipped.
+    Equip(char),
+    Drink(char),
+    /// Read a scroll. `target` is the item a scroll of enchanting
+    /// should improve.
+    Read {
+        scroll: char,
+        target: Option<char>,
+    },
 }
 
 pub struct Game {
@@ -80,6 +95,7 @@ pub struct Game {
     /// action, because moving or opening a door changes it.
     visible: Grid<bool>,
     pub monsters: Vec<Monster>,
+    pub items: Vec<FloorItem>,
     /// Randomness for events during play, such as monsters waking.
     /// Kept separate from floor generation so what happens on one
     /// floor never changes the layout of the next.
@@ -98,6 +114,7 @@ impl Game {
             seed,
             visible: Grid::new(1, 1, false),
             monsters: Vec::new(),
+            items: Vec::new(),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
         };
         game.enter_floor(1);
@@ -114,13 +131,14 @@ impl Game {
         let mut floor_rng = Rng::new(rng::mix(self.seed, depth as u64));
         let level = dungeon::generate(&mut floor_rng, &dungeon::STANDARD);
         self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth);
+        self.items = item::spawn_for_floor(&mut floor_rng, &level);
         self.place_on_map(level.map, level.start);
         self.depth = depth;
     }
 
     /// Swaps in a new map with the player at `at`, resetting what is
     /// visible to match the new map's size.
-    fn place_on_map(&mut self, map: Map, at: Point) {
+    pub(crate) fn place_on_map(&mut self, map: Map, at: Point) {
         self.visible = Grid::new(map.width(), map.height(), false);
         self.map = map;
         self.player.pos = at;
@@ -128,7 +146,7 @@ impl Game {
 
     /// Recalculates what the player sees and adds it to the map's
     /// memory.
-    fn update_fov(&mut self) {
+    pub(crate) fn update_fov(&mut self) {
         self.visible.fill(false);
 
         // Borrow the two fields separately: the closures read the map
@@ -170,6 +188,11 @@ impl Game {
             Action::Wait => Outcome::TookTurn,
             Action::Descend => self.descend(),
             Action::Close(dir) => self.close_door(dir),
+            Action::PickUp => self.pick_up(),
+            Action::Drop(letter) => self.drop_item(letter),
+            Action::Equip(letter) => self.equip(letter),
+            Action::Drink(letter) => self.drink(letter),
+            Action::Read { scroll, target } => self.read(scroll, target),
         };
         if outcome == Outcome::Free {
             return;
@@ -205,6 +228,10 @@ impl Game {
                 self.player.pos = target;
                 if tile == Tile::StairsDown {
                     self.log("There is a staircase down here. Press > to descend.");
+                }
+                // Walking onto an item picks it up as part of the move.
+                if self.item_at(target).is_some() {
+                    self.pick_up();
                 }
                 Outcome::TookTurn
             }
@@ -283,17 +310,21 @@ impl Game {
                     MsgKind::Bad,
                 );
                 if self.player.hp <= 0 {
-                    self.player.hp = 0;
-                    self.log_as("You die...", MsgKind::Bad);
-                    self.death = Some(format!(
-                        "Killed by {} {name} on depth {} after {} turns.",
-                        article(name),
-                        self.depth,
-                        self.turn
-                    ));
+                    self.kill_player(&format!("{} {name}", article(name)));
                 }
             }
         }
+    }
+
+    /// Ends the run. `killer` finishes the sentence "Killed by ...",
+    /// e.g. "a jackal" or "a potion of decay".
+    pub(crate) fn kill_player(&mut self, killer: &str) {
+        self.player.hp = 0;
+        self.log_as("You die...", MsgKind::Bad);
+        self.death = Some(format!(
+            "Killed by {killer} on depth {} after {} turns.",
+            self.depth, self.turn
+        ));
     }
 
     pub fn monster_at(&self, p: Point) -> Option<&Monster> {
@@ -329,14 +360,6 @@ impl Game {
     }
 }
 
-/// "a" or "an", to go before a word.
-fn article(word: &str) -> &'static str {
-    match word.chars().next() {
-        Some('a' | 'e' | 'i' | 'o' | 'u') => "an",
-        _ => "a",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,6 +379,7 @@ mod tests {
         map.set_tile(Point::new(5, 1), Tile::StairsDown);
         game.place_on_map(map, Point::new(1, 1));
         game.monsters.clear();
+        game.items.clear();
         game.log.clear();
         game.update_fov();
         game
@@ -442,6 +466,7 @@ mod tests {
         map.carve_room(1, 1, 20, 9);
         game.place_on_map(map, Point::new(2, 5));
         game.monsters.clear();
+        game.items.clear();
         game.log.clear();
         game.update_fov();
         game
@@ -668,9 +693,18 @@ mod tests {
             let mut game = Game::new(seed);
             let mut dice = Rng::new(seed + 1000);
             for _ in 0..400 {
-                let action = match dice.range(0, 12) {
+                let letter = (b'a' + dice.range(0, 8) as u8) as char;
+                let action = match dice.range(0, 18) {
                     0 => Action::Wait,
                     1 => Action::Descend,
+                    12 => Action::PickUp,
+                    13 => Action::Drop(letter),
+                    14 => Action::Equip(letter),
+                    15 => Action::Drink(letter),
+                    16 => Action::Read {
+                        scroll: letter,
+                        target: Some((b'a' + dice.range(0, 8) as u8) as char),
+                    },
                     // Stand on the stairs now and then to go deeper.
                     2 if dice.chance(5) => {
                         let stairs = game
@@ -692,6 +726,23 @@ mod tests {
                     game.monsters.iter().all(|m| m.hp > 0),
                     "seed {seed}: dead monster"
                 );
+
+                let pack = &game.player.inventory;
+                for (i, item) in pack.iter().enumerate() {
+                    assert!(item.count >= 1, "seed {seed}: empty stack");
+                    assert!(pack[i + 1..].iter().all(|o| o.letter != item.letter));
+                    assert!(!item.equipped || item.kind.is_equipment());
+                }
+                let equipped = |f: fn(&crate::item::ItemKind) -> bool| {
+                    pack.iter().filter(|i| i.equipped && f(&i.kind)).count()
+                };
+                use crate::item::ItemKind as K;
+                assert!(equipped(|k| matches!(k, K::Weapon(_))) <= 1, "seed {seed}");
+                assert!(equipped(|k| matches!(k, K::Armor(_))) <= 1, "seed {seed}");
+                for (i, fi) in game.items.iter().enumerate() {
+                    assert!(game.map.tile(fi.pos).is_walkable(), "seed {seed}");
+                    assert!(game.items[i + 1..].iter().all(|o| o.pos != fi.pos));
+                }
                 for (i, m) in game.monsters.iter().enumerate() {
                     assert!(
                         game.map.tile(m.pos).is_walkable(),
@@ -723,11 +774,5 @@ mod tests {
         game.log("Bye");
         game.log("Hello");
         assert_eq!(game.log.len(), 3, "only consecutive repeats merge");
-    }
-
-    #[test]
-    fn articles() {
-        assert_eq!(article("rat"), "a");
-        assert_eq!(article("orc"), "an");
     }
 }

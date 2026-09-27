@@ -14,7 +14,9 @@
 use crate::frame::{BLACK, Cell, Frame, Rgb};
 use crate::game::{Game, MsgKind};
 use crate::geom::Point;
+use crate::item::{Item, ItemKind};
 use crate::map::Tile;
+use crate::menu::{self, Line};
 use crate::monster::{Ai, Monster};
 
 const SIDEBAR_WIDTH: i32 = 22;
@@ -52,15 +54,89 @@ pub fn draw(game: &Game, width: u16, height: u16) -> Frame {
         return frame;
     }
 
-    let (w, h) = (width as i32, height as i32);
-    let view_w = w - SIDEBAR_WIDTH - 1; // -1 for the divider column
-    let view_h = h - LOG_HEIGHT - 1; // -1 for the divider row
+    let (w, _) = (width as i32, height as i32);
+    let (view_w, view_h) = map_area(width, height);
 
     draw_map(&mut frame, game, view_w, view_h);
     draw_dividers(&mut frame, view_w, view_h, w);
     draw_sidebar(&mut frame, game, view_w + 2, view_h);
     draw_log(&mut frame, game, view_h + 1);
     frame
+}
+
+/// The size of the map viewport for a given screen size.
+fn map_area(width: u16, height: u16) -> (i32, i32) {
+    let view_w = width as i32 - SIDEBAR_WIDTH - 1; // -1 for the divider column
+    let view_h = height as i32 - LOG_HEIGHT - 1; // -1 for the divider row
+    (view_w, view_h)
+}
+
+/// The normal game screen with a pop-up box over the map.
+pub fn draw_with_box(game: &Game, width: u16, height: u16, title: &str, lines: &[Line]) -> Frame {
+    let mut frame = draw(game, width, height);
+    if width >= MIN_WIDTH && height >= MIN_HEIGHT {
+        menu::draw_box(&mut frame, map_area(width, height), title, lines);
+    }
+    frame
+}
+
+/// A line per item, like "a) sword (wielded)". Only items for which
+/// `show` is true are listed.
+pub fn item_list(game: &Game, show: impl Fn(&Item) -> bool) -> Vec<Line> {
+    game.player
+        .inventory
+        .iter()
+        .filter(|i| show(i))
+        .map(|i| {
+            let worn = match (i.equipped, i.kind) {
+                (true, ItemKind::Weapon(_)) => " (wielded)",
+                (true, _) => " (worn)",
+                _ => "",
+            };
+            Line::new(format!("{}) {}{worn}", i.letter, i.name()), TEXT)
+        })
+        .collect()
+}
+
+/// The inside of the box describing one item, with the keys that act
+/// on it.
+pub fn item_details(item: &Item) -> Vec<Line> {
+    let mut lines: Vec<Line> = item
+        .describe()
+        .into_iter()
+        .map(|text| Line::new(text, TEXT))
+        .collect();
+    let actions = match item.kind {
+        ItemKind::Weapon(_) | ItemKind::Armor(_) if item.equipped => "e) remove   d) drop",
+        ItemKind::Weapon(_) | ItemKind::Armor(_) => "e) equip   d) drop",
+        ItemKind::Potion(_) => "q) drink   d) drop",
+        ItemKind::Scroll(_) => "r) read   d) drop",
+    };
+    lines.push(Line::new("", TEXT));
+    lines.push(Line::new(actions, TEXT_DIM));
+    lines
+}
+
+/// Every key, for the help box.
+pub fn help_lines() -> Vec<Line> {
+    [
+        "arrows or hjkl   move, or attack by moving into",
+        "yubn             move diagonally",
+        ".                wait a turn",
+        ">                descend stairs",
+        "c                close a door",
+        "g                pick up (walking over also works)",
+        "i                inventory",
+        "e                equip or remove",
+        "d                drop",
+        "q                drink a potion",
+        "r                read a scroll",
+        "?                this help",
+        "Q                quit (ends the run)",
+    ]
+    .into_iter()
+    .map(|t| Line::new(t, TEXT))
+    .collect()
 }
 
 /// Finds the map coordinate shown at the viewport's left or top edge,
@@ -104,6 +180,32 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
                 );
             }
         }
+    }
+
+    // Items don't move on their own, so remembered ones stay drawn,
+    // dimmed, like the tiles under them.
+    for fi in &game.items {
+        let s = fi.pos - origin;
+        if s.x < 0 || s.y < 0 || s.x >= view_w || s.y >= view_h {
+            continue;
+        }
+        let fg = fi.item.kind.color();
+        let fg = if game.is_visible(fi.pos) {
+            fg
+        } else if game.map.is_revealed(fi.pos) {
+            fg.remembered()
+        } else {
+            continue;
+        };
+        frame.set(
+            s.x,
+            s.y,
+            Cell {
+                ch: fi.item.kind.glyph(),
+                fg,
+                bg: BLACK,
+            },
+        );
     }
 
     // Monsters are only drawn while in sight. There is no memory of
@@ -190,20 +292,27 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         TEXT,
     );
     frame.print(x, 5, &format!("Seed {}", game.seed), TEXT_DIM);
+    for (y, item) in [(6, p.weapon()), (7, p.armor())] {
+        if let Some(item) = item {
+            let kind = item.kind;
+            frame.set(
+                x,
+                y,
+                Cell {
+                    ch: kind.glyph(),
+                    fg: kind.color(),
+                    bg: BLACK,
+                },
+            );
+            frame.print(x + 2, y, &item.name(), TEXT);
+        }
+    }
 
-    // Key help sits at the bottom of the sidebar.
-    let keys = [
-        "hjkl/arrows  move",
-        "yubn    diagonals",
-        "walk into   attack",
-        ".        wait",
-        ">        descend",
-        "c        close door",
-        "q        quit",
-    ];
-    // On short terminals the help would cover the status above, which
-    // matters more, so it is left out.
-    let list_top = 7;
+    // Key hints sit at the bottom of the sidebar.
+    let keys = ["?  all keys", "i  inventory"];
+    // On short terminals the hints would cover the status above, which
+    // matters more, so they are left out.
+    let list_top = 9;
     let keys_top = height - keys.len() as i32;
     let show_keys = keys_top >= list_top;
     if show_keys {
@@ -391,6 +500,7 @@ mod tests {
             let frame = draw(&game, MIN_WIDTH, height);
             assert!(row_text(&frame, 4).contains("Depth 1"), "height {height}");
             assert!(row_text(&frame, 5).contains("Seed 1"), "height {height}");
+            assert!(row_text(&frame, 6).contains("sword"), "height {height}");
         }
     }
 

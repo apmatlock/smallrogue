@@ -7,9 +7,22 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use crate::game::Action;
 use crate::geom::Point;
 
+/// Commands that need an item chosen from the pack first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verb {
+    Drop,
+    Equip,
+    Drink,
+    Read,
+}
+
 pub enum Command {
     /// Something for the game to do.
     Act(Action),
+    /// Choose an item, then do this with it.
+    Use(Verb),
+    Inventory,
+    Help,
     /// Close a door. Needs a direction if several doors are adjacent,
     /// which the main loop sorts out.
     Close,
@@ -40,7 +53,30 @@ pub fn next_direction() -> io::Result<Option<Point>> {
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
+            if has_ctrl_or_alt(key) {
+                return Ok(None);
+            }
             return Ok(direction(key.code));
+        }
+    }
+}
+
+/// Waits for a key while a menu is open. Returns the character typed,
+/// or `None` for Escape and other non-character keys, which close the
+/// menu.
+pub fn next_menu_key() -> io::Result<Option<char>> {
+    loop {
+        match event::read()? {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                return Ok(match key.code {
+                    // Ctrl+D is not "d": combinations with Ctrl or Alt
+                    // close the menu instead of choosing something.
+                    KeyCode::Char(c) if !has_ctrl_or_alt(key) => Some(c),
+                    _ => None,
+                });
+            }
+            Event::Resize(..) => return Ok(None),
+            _ => {}
         }
     }
 }
@@ -62,16 +98,36 @@ pub fn wait_for_any_key() -> io::Result<()> {
     }
 }
 
+fn has_ctrl_or_alt(key: KeyEvent) -> bool {
+    key.modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
 fn map_key(key: KeyEvent) -> Option<Command> {
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Some(Command::Quit);
+    }
+    // Ctrl or Alt with a letter is never a game command, so Ctrl+D
+    // can't drop something by accident.
+    if has_ctrl_or_alt(key) {
+        return None;
+    }
     if let Some(dir) = direction(key.code) {
         return Some(Command::Act(Action::Move(dir)));
     }
     match key.code {
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Command::Quit),
-        KeyCode::Char('q') | KeyCode::Esc => Some(Command::Quit),
+        // Capital Q, so a slip of the finger can't end a run.
+        KeyCode::Char('Q') => Some(Command::Quit),
         KeyCode::Char('.') => Some(Command::Act(Action::Wait)),
         KeyCode::Char('>') => Some(Command::Act(Action::Descend)),
         KeyCode::Char('c') => Some(Command::Close),
+        KeyCode::Char('g' | ',') => Some(Command::Act(Action::PickUp)),
+        KeyCode::Char('i') => Some(Command::Inventory),
+        KeyCode::Char('d') => Some(Command::Use(Verb::Drop)),
+        KeyCode::Char('e') => Some(Command::Use(Verb::Equip)),
+        KeyCode::Char('q') => Some(Command::Use(Verb::Drink)),
+        KeyCode::Char('r') => Some(Command::Use(Verb::Read)),
+        KeyCode::Char('?') => Some(Command::Help),
         _ => None,
     }
 }
@@ -90,4 +146,33 @@ fn direction(code: KeyCode) -> Option<Point> {
         _ => return None,
     };
     Some(Point::new(x, y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn ctrl_letters_are_not_commands() {
+        let ctrl_d = key(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert!(map_key(ctrl_d).is_none());
+        let d = key(KeyCode::Char('d'), KeyModifiers::NONE);
+        assert!(matches!(map_key(d), Some(Command::Use(Verb::Drop))));
+    }
+
+    #[test]
+    fn ctrl_c_and_capital_q_quit_but_lowercase_q_drinks() {
+        let ctrl_c = key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(matches!(map_key(ctrl_c), Some(Command::Quit)));
+        let big_q = key(KeyCode::Char('Q'), KeyModifiers::SHIFT);
+        assert!(matches!(map_key(big_q), Some(Command::Quit)));
+        let q = key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(matches!(map_key(q), Some(Command::Use(Verb::Drink))));
+        let esc = key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(map_key(esc).is_none(), "Escape no longer quits");
+    }
 }
