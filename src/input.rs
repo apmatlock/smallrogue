@@ -45,6 +45,23 @@ pub fn next_direction() -> io::Result<Option<Point>> {
     }
 }
 
+/// Waits for any key, after a short pause that swallows keys already
+/// pressed. Without the pause, a player hammering a direction key in a
+/// fight would skip the death screen before reading it.
+pub fn wait_for_any_key() -> io::Result<()> {
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    while event::poll(std::time::Duration::ZERO)? {
+        event::read()?;
+    }
+    loop {
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            return Ok(());
+        }
+    }
+}
+
 fn map_key(key: KeyEvent) -> Option<Command> {
     if let Some(dir) = direction(key.code) {
         return Some(Command::Act(Action::Move(dir)));

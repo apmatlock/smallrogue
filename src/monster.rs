@@ -4,6 +4,7 @@
 //! table. Adding a monster means adding a `Kind` variant and one entry,
 //! with no other code changes.
 
+use crate::combat::{Attack, Defense};
 use crate::dungeon::{self, Level};
 use crate::frame::Rgb;
 use crate::geom::Point;
@@ -32,6 +33,14 @@ pub struct Species {
     pub opens_doors: bool,
     /// The shallowest depth where it can appear.
     pub min_depth: u32,
+    pub max_hp: i32,
+    pub accuracy: i32,
+    pub dodge: i32,
+    /// Damage range, inclusive: (min, max).
+    pub damage: (i32, i32),
+    pub armor: i32,
+    /// How its attack reads in the log: "The rat bites you."
+    pub verb: &'static str,
 }
 
 impl Kind {
@@ -47,6 +56,12 @@ impl Kind {
                 sight: 6,
                 opens_doors: false,
                 min_depth: 1,
+                max_hp: 4,
+                accuracy: 2,
+                dodge: 3,
+                damage: (1, 3),
+                armor: 0,
+                verb: "bites",
             },
             Kind::Jackal => &Species {
                 name: "jackal",
@@ -56,6 +71,12 @@ impl Kind {
                 sight: 8,
                 opens_doors: false,
                 min_depth: 1,
+                max_hp: 6,
+                accuracy: 3,
+                dodge: 4,
+                damage: (1, 3),
+                armor: 0,
+                verb: "bites",
             },
             Kind::Goblin => &Species {
                 name: "goblin",
@@ -65,6 +86,12 @@ impl Kind {
                 sight: 8,
                 opens_doors: true,
                 min_depth: 2,
+                max_hp: 10,
+                accuracy: 3,
+                dodge: 2,
+                damage: (2, 5),
+                armor: 1,
+                verb: "hits",
             },
             Kind::Zombie => &Species {
                 name: "zombie",
@@ -74,6 +101,12 @@ impl Kind {
                 sight: 5,
                 opens_doors: true,
                 min_depth: 2,
+                max_hp: 16,
+                accuracy: 1,
+                dodge: 0,
+                damage: (3, 6),
+                armor: 1,
+                verb: "claws",
             },
         }
     }
@@ -96,6 +129,7 @@ pub struct Monster {
     pub pos: Point,
     pub energy: i32,
     pub ai: Ai,
+    pub hp: i32,
 }
 
 impl Monster {
@@ -105,6 +139,7 @@ impl Monster {
             pos,
             energy: 0,
             ai,
+            hp: kind.species().max_hp,
         }
     }
 
@@ -114,6 +149,22 @@ impl Monster {
 
     pub fn name(&self) -> &'static str {
         self.species().name
+    }
+
+    pub fn attack(&self) -> Attack {
+        let s = self.species();
+        Attack {
+            accuracy: s.accuracy,
+            damage: s.damage,
+        }
+    }
+
+    pub fn defense(&self) -> Defense {
+        let s = self.species();
+        Defense {
+            dodge: s.dodge,
+            armor: s.armor,
+        }
     }
 }
 

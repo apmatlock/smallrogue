@@ -95,7 +95,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 2 | Dungeon generation | Every floor is a new random set of rooms, corridors and doors. Stairs take you deeper ✅ |
 | 3 | Field of view | You only see what is in sight. Explored areas remain dim ✅ |
 | 4 | Monsters and turns | Monsters wander, spot you and chase you. Speed differences work ✅ |
-| 5 | Combat and UI | Fight and die. Sidebar, message log, death screen |
+| 5 | Combat and UI | Fight and die. Sidebar, message log, death screen ✅ |
 | 6 | Items and inventory | Pick up, drop, equip weapons and armor, drink potions, read scrolls |
 | 7 | Identification | Unknown potions, scrolls, wands, rings and enchantments |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use |

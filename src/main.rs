@@ -7,6 +7,8 @@
 //! - `map`     — the tile layout and the player's memory of it
 //! - `fov`     — field of view (what can be seen from where)
 //! - `dungeon` — random floor generation
+//! - `player`  — the player character's stats
+//! - `combat`  — rolling attacks and damage
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
 //! - `ai`      — what monsters do on their turn
@@ -19,6 +21,7 @@
 //! Run with `cargo run -- --seed 1234` to replay a specific dungeon.
 
 mod ai;
+mod combat;
 mod dungeon;
 mod fov;
 mod frame;
@@ -29,6 +32,7 @@ mod input;
 mod map;
 mod monster;
 mod path;
+mod player;
 mod rng;
 mod term;
 mod ui;
@@ -68,6 +72,13 @@ fn run(seed: u64) -> io::Result<()> {
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
         draw(&mut terminal, &game)?;
+
+        if game.death.is_some() {
+            let (w, h) = terminal.size()?;
+            terminal.present(ui::draw_death(&game, w, h))?;
+            input::wait_for_any_key()?;
+            break;
+        }
 
         match input::next_command()? {
             Command::Act(action) => game.apply(action),

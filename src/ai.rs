@@ -23,6 +23,9 @@ impl Game {
         for i in 0..self.monsters.len() {
             self.monsters[i].energy += self.monsters[i].species().speed;
             while self.monsters[i].energy >= ACTION_COST {
+                if self.death.is_some() {
+                    return;
+                }
                 self.monsters[i].energy -= ACTION_COST;
                 self.monster_turn(i);
             }
@@ -37,7 +40,7 @@ impl Game {
     fn monster_sees_player(&self, i: usize) -> bool {
         let m = &self.monsters[i];
         let range = m.species().sight;
-        self.is_visible(m.pos) && m.pos.dist_sq(self.player) <= range * range + range
+        self.is_visible(m.pos) && m.pos.dist_sq(self.player.pos) <= range * range + range
     }
 
     fn monster_turn(&mut self, i: usize) {
@@ -50,18 +53,18 @@ impl Game {
             Ai::Asleep if sees && self.rng.chance(WAKE_PERCENT) => {
                 self.log(&format!("The {name} wakes up!"));
                 Ai::Hunting {
-                    last_seen: self.player,
+                    last_seen: self.player.pos,
                 }
             }
             Ai::Asleep => return,
             Ai::Wandering { .. } if sees => {
                 self.log(&format!("The {name} notices you!"));
                 Ai::Hunting {
-                    last_seen: self.player,
+                    last_seen: self.player.pos,
                 }
             }
             Ai::Hunting { .. } if sees => Ai::Hunting {
-                last_seen: self.player,
+                last_seen: self.player.pos,
             },
             // Reached the last place it saw the player, and the player
             // is gone: give up and wander.
@@ -84,9 +87,8 @@ impl Game {
         // Then act on it.
         let pos = self.monsters[i].pos;
         let goal = match ai {
-            Ai::Hunting { .. } if sees && pos.is_adjacent(self.player) => {
-                // Combat arrives in milestone 5.
-                self.log(&format!("The {name} lunges at you!"));
+            Ai::Hunting { .. } if sees && pos.is_adjacent(self.player.pos) => {
+                self.monster_attack(i);
                 return;
             }
             Ai::Hunting { last_seen } => last_seen,
@@ -119,7 +121,7 @@ impl Game {
             let passable = tile.is_walkable() || (opens_doors && tile == Tile::DoorClosed);
             // Other creatures block the way, except that the player's
             // tile is allowed as the goal so hunters can path to them.
-            let occupied = (p != goal && p == self.player) || self.monster_at(p).is_some();
+            let occupied = (p != goal && p == self.player.pos) || self.monster_at(p).is_some();
             passable && !occupied
         };
         path::first_step(me.pos, goal, self.map.width(), self.map.height(), can_enter)
@@ -136,7 +138,7 @@ impl Game {
             if self.is_visible(step) {
                 self.log(&format!("The {name} opens a door."));
             }
-        } else if step != self.player && self.monster_at(step).is_none() {
+        } else if step != self.player.pos && self.monster_at(step).is_none() {
             self.monsters[i].pos = step;
         }
     }

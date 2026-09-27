@@ -4,16 +4,40 @@
 //! "what happens when the player does X?". Keeping it that way makes it
 //! easy to test, to save later, and to draw with tiles someday.
 
+use crate::combat;
 use crate::dungeon;
 use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::grid::Grid;
 use crate::map::{Map, Tile};
-use crate::monster::{self, Monster};
+use crate::monster::{self, Ai, Monster};
+use crate::player::Player;
 use crate::rng::{self, Rng};
 
 /// How far the player can see, in tiles.
 pub const VIEW_RADIUS: i32 = 8;
+
+/// The player heals 1 health every this many turns.
+pub const REGEN_INTERVAL: u64 = 9;
+
+/// What kind of news a log message is, so the screen can color it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MsgKind {
+    Info,
+    /// Good for the player, like killing a monster.
+    Good,
+    /// Bad for the player, like taking damage.
+    Bad,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Message {
+    pub text: String,
+    pub kind: MsgKind,
+    /// How many times in a row this message happened. Shown as "(x3)"
+    /// instead of repeating the line.
+    pub count: u32,
+}
 
 /// Whether a player action used up time. Only actions that take time
 /// let the monsters move.
@@ -41,9 +65,12 @@ pub enum Action {
 
 pub struct Game {
     pub map: Map,
-    pub player: Point,
+    pub player: Player,
     /// Messages shown in the log, oldest first.
-    pub log: Vec<String>,
+    pub log: Vec<Message>,
+    /// Set when the player dies, describing how. Once set, the game
+    /// ignores further actions.
+    pub death: Option<String>,
     pub turn: u64,
     pub depth: u32,
     /// The run's seed. Each floor's layout is derived from it, so the
@@ -63,8 +90,9 @@ impl Game {
     pub fn new(seed: u64) -> Self {
         let mut game = Self {
             map: Map::new_filled(1, 1), // replaced by enter_floor below
-            player: Point::default(),
+            player: Player::fighter(Point::default()),
             log: Vec::new(),
+            death: None,
             turn: 0,
             depth: 0,
             seed,
@@ -95,7 +123,7 @@ impl Game {
     fn place_on_map(&mut self, map: Map, at: Point) {
         self.visible = Grid::new(map.width(), map.height(), false);
         self.map = map;
-        self.player = at;
+        self.player.pos = at;
     }
 
     /// Recalculates what the player sees and adds it to the map's
@@ -109,7 +137,7 @@ impl Game {
         let map = &self.map;
         let visible = &mut self.visible;
         fov::compute(
-            self.player,
+            self.player.pos,
             VIEW_RADIUS,
             |p| map.tile(p).blocks_sight(),
             |p| visible.set(p, true),
@@ -134,6 +162,9 @@ impl Game {
     /// Applies one player action, then lets the monsters respond if
     /// the action took time.
     pub fn apply(&mut self, action: Action) {
+        if self.death.is_some() {
+            return;
+        }
         let outcome = match action {
             Action::Move(delta) => self.move_player(delta),
             Action::Wait => Outcome::TookTurn,
@@ -144,6 +175,9 @@ impl Game {
             return;
         }
         self.turn += 1;
+        if self.turn.is_multiple_of(REGEN_INTERVAL) {
+            self.player.hp = (self.player.hp + 1).min(self.player.max_hp);
+        }
         // Monsters need to know what the player can see (and so what
         // can see the player) after the player's move.
         self.update_fov();
@@ -155,12 +189,10 @@ impl Game {
     }
 
     fn move_player(&mut self, delta: Point) -> Outcome {
-        let target = self.player + delta;
-        if let Some(m) = self.monster_at(target) {
-            // Attacking arrives in milestone 5.
-            let name = m.name();
-            self.log(&format!("The {name} is in your way."));
-            return Outcome::Free;
+        let target = self.player.pos + delta;
+        if let Some(i) = self.monsters.iter().position(|m| m.pos == target) {
+            self.player_attack(i);
+            return Outcome::TookTurn;
         }
         match self.map.tile(target) {
             Tile::DoorClosed => {
@@ -170,7 +202,7 @@ impl Game {
                 Outcome::TookTurn
             }
             tile if tile.is_walkable() => {
-                self.player = target;
+                self.player.pos = target;
                 if tile == Tile::StairsDown {
                     self.log("There is a staircase down here. Press > to descend.");
                 }
@@ -184,7 +216,7 @@ impl Game {
     }
 
     fn descend(&mut self) -> Outcome {
-        if self.map.tile(self.player) != Tile::StairsDown {
+        if self.map.tile(self.player.pos) != Tile::StairsDown {
             self.log("There are no stairs here.");
             return Outcome::Free;
         }
@@ -194,7 +226,7 @@ impl Game {
     }
 
     fn close_door(&mut self, dir: Point) -> Outcome {
-        let target = self.player + dir;
+        let target = self.player.pos + dir;
         match self.map.tile(target) {
             Tile::DoorOpen if self.monster_at(target).is_some() => {
                 self.log("Something is standing in the doorway.");
@@ -216,6 +248,54 @@ impl Game {
         }
     }
 
+    /// The player attacks monster `i`. Any attack, hit or miss, alerts
+    /// the monster.
+    fn player_attack(&mut self, i: usize) {
+        let name = self.monsters[i].name();
+        let defense = self.monsters[i].defense();
+        match combat::resolve(&mut self.rng, self.player.attack(), defense) {
+            None => self.log(&format!("You miss the {name}.")),
+            Some(damage) => {
+                self.monsters[i].hp -= damage;
+                if self.monsters[i].hp <= 0 {
+                    self.monsters.remove(i);
+                    self.log_as(&format!("You kill the {name}!"), MsgKind::Good);
+                    return;
+                }
+                self.log(&format!("You hit the {name} for {damage}."));
+            }
+        }
+        self.monsters[i].ai = Ai::Hunting {
+            last_seen: self.player.pos,
+        };
+    }
+
+    /// Monster `i` attacks the player.
+    pub(crate) fn monster_attack(&mut self, i: usize) {
+        let m = &self.monsters[i];
+        let (name, verb) = (m.name(), m.species().verb);
+        match combat::resolve(&mut self.rng, m.attack(), self.player.defense()) {
+            None => self.log(&format!("The {name} misses you.")),
+            Some(damage) => {
+                self.player.hp -= damage;
+                self.log_as(
+                    &format!("The {name} {verb} you for {damage}."),
+                    MsgKind::Bad,
+                );
+                if self.player.hp <= 0 {
+                    self.player.hp = 0;
+                    self.log_as("You die...", MsgKind::Bad);
+                    self.death = Some(format!(
+                        "Killed by {} {name} on depth {} after {} turns.",
+                        article(name),
+                        self.depth,
+                        self.turn
+                    ));
+                }
+            }
+        }
+    }
+
     pub fn monster_at(&self, p: Point) -> Option<&Monster> {
         self.monsters.iter().find(|m| m.pos == p)
     }
@@ -224,16 +304,36 @@ impl Game {
     pub fn adjacent_open_doors(&self) -> Vec<Point> {
         DIRECTIONS_8
             .into_iter()
-            .filter(|&d| self.map.tile(self.player + d) == Tile::DoorOpen)
+            .filter(|&d| self.map.tile(self.player.pos + d) == Tile::DoorOpen)
             .collect()
     }
 
     pub fn log(&mut self, message: &str) {
-        // Skip exact repeats so bumping a wall ten times doesn't
-        // flood the log.
-        if self.log.last().map(String::as_str) != Some(message) {
-            self.log.push(message.to_string());
+        self.log_as(message, MsgKind::Info);
+    }
+
+    pub fn log_as(&mut self, text: &str, kind: MsgKind) {
+        // A repeat of the last message bumps its count instead of
+        // adding a line, so ten misses in a row take one line.
+        if let Some(last) = self.log.last_mut()
+            && last.text == text
+        {
+            last.count += 1;
+            return;
         }
+        self.log.push(Message {
+            text: text.to_string(),
+            kind,
+            count: 1,
+        });
+    }
+}
+
+/// "a" or "an", to go before a word.
+fn article(word: &str) -> &'static str {
+    match word.chars().next() {
+        Some('a' | 'e' | 'i' | 'o' | 'u') => "an",
+        _ => "a",
     }
 }
 
@@ -268,7 +368,7 @@ mod tests {
     fn walls_block_movement_and_cost_no_turn() {
         let mut game = corridor_game();
         game.apply(Action::Move(WEST));
-        assert_eq!(game.player, Point::new(1, 1));
+        assert_eq!(game.player.pos, Point::new(1, 1));
         assert_eq!(game.turn, 0);
     }
 
@@ -277,10 +377,10 @@ mod tests {
         let mut game = corridor_game();
         game.apply(Action::Move(EAST)); // to (2,1)
         game.apply(Action::Move(EAST)); // opens the door, stays put
-        assert_eq!(game.player, Point::new(2, 1));
+        assert_eq!(game.player.pos, Point::new(2, 1));
         assert_eq!(game.map.tile(Point::new(3, 1)), Tile::DoorOpen);
         game.apply(Action::Move(EAST)); // steps into the doorway
-        assert_eq!(game.player, Point::new(3, 1));
+        assert_eq!(game.player.pos, Point::new(3, 1));
         assert_eq!(game.turn, 3);
     }
 
@@ -288,7 +388,7 @@ mod tests {
     fn closing_a_door() {
         let mut game = corridor_game();
         game.map.set_tile(Point::new(3, 1), Tile::DoorOpen);
-        game.player = Point::new(2, 1);
+        game.player.pos = Point::new(2, 1);
         assert_eq!(game.adjacent_open_doors(), vec![EAST]);
         game.apply(Action::Close(EAST));
         assert_eq!(game.map.tile(Point::new(3, 1)), Tile::DoorClosed);
@@ -300,11 +400,11 @@ mod tests {
         game.apply(Action::Descend);
         assert_eq!(game.depth, 1);
 
-        game.player = Point::new(5, 1);
+        game.player.pos = Point::new(5, 1);
         game.apply(Action::Descend);
         assert_eq!(game.depth, 2);
         assert_eq!(game.map.width(), dungeon::STANDARD.width);
-        assert!(game.map.tile(game.player).is_walkable());
+        assert!(game.map.tile(game.player.pos).is_walkable());
     }
 
     #[test]
@@ -318,7 +418,7 @@ mod tests {
         game.apply(Action::Move(EAST)); // open it
         assert!(game.is_visible(beyond));
         assert!(game.map.is_revealed(beyond));
-        assert!(game.log.iter().any(|m| m.contains("staircase")));
+        assert!(game.log.iter().any(|m| m.text.contains("staircase")));
     }
 
     #[test]
@@ -326,7 +426,7 @@ mod tests {
         let mut game = corridor_game();
         game.apply(Action::Move(EAST));
         game.apply(Action::Move(EAST)); // open the door
-        game.player = Point::new(2, 1);
+        game.player.pos = Point::new(2, 1);
         game.apply(Action::Close(EAST));
         let beyond = Point::new(4, 1);
         assert!(!game.is_visible(beyond));
@@ -357,13 +457,13 @@ mod tests {
         let mut game = room_game();
         let rat = add_monster(&mut game, Kind::Rat, Point::new(7, 5), Ai::Asleep);
         game.monsters[rat].ai = Ai::Hunting {
-            last_seen: game.player,
+            last_seen: game.player.pos,
         };
         for _ in 0..10 {
             game.apply(Action::Wait);
         }
-        assert!(game.monsters[rat].pos.is_adjacent(game.player));
-        assert!(game.log.iter().any(|m| m.contains("lunges")));
+        assert!(game.monsters[rat].pos.is_adjacent(game.player.pos));
+        assert!(game.log.iter().any(|m| m.text.starts_with("The rat")));
     }
 
     #[test]
@@ -394,7 +494,7 @@ mod tests {
                 goal: Point::new(20, 5),
             },
         );
-        game.player = Point::new(1, 9); // tuck the player in a corner
+        game.player.pos = Point::new(1, 9); // tuck the player in a corner
         game.update_fov();
         for m in &mut game.monsters {
             m.energy = 0;
@@ -486,12 +586,78 @@ mod tests {
     }
 
     #[test]
-    fn player_cannot_walk_into_a_monster() {
+    fn walking_into_a_monster_attacks_it_and_wakes_it() {
+        let mut game = room_game();
+        let rat = add_monster(&mut game, Kind::Rat, Point::new(3, 5), Ai::Asleep);
+        game.monsters[rat].hp = 100; // survive the hit
+        game.apply(Action::Move(EAST));
+        assert_eq!(
+            game.player.pos,
+            Point::new(2, 5),
+            "attacking doesn't move you"
+        );
+        assert_eq!(game.turn, 1);
+        assert!(matches!(game.monsters[rat].ai, Ai::Hunting { .. }));
+        assert!(game.log.iter().any(|m| m.text.contains("the rat")));
+    }
+
+    #[test]
+    fn killing_a_monster_removes_it() {
         let mut game = room_game();
         add_monster(&mut game, Kind::Rat, Point::new(3, 5), Ai::Asleep);
-        game.apply(Action::Move(EAST));
-        assert_eq!(game.player, Point::new(2, 5));
-        assert_eq!(game.turn, 0);
+        for _ in 0..30 {
+            if game.monsters.is_empty() {
+                break;
+            }
+            game.apply(Action::Move(EAST));
+        }
+        assert!(game.monsters.is_empty());
+        let kill = game.log.iter().find(|m| m.text == "You kill the rat!");
+        assert_eq!(kill.map(|m| m.kind), Some(MsgKind::Good));
+    }
+
+    #[test]
+    fn monsters_can_kill_the_player_and_the_game_stops() {
+        let mut game = room_game();
+        game.player.hp = 1;
+        let hunt = Ai::Hunting {
+            last_seen: game.player.pos,
+        };
+        add_monster(&mut game, Kind::Jackal, Point::new(3, 5), hunt);
+        for _ in 0..100 {
+            game.apply(Action::Wait);
+            if game.death.is_some() {
+                break;
+            }
+        }
+        let cause = game
+            .death
+            .clone()
+            .expect("the jackal should win eventually");
+        assert!(
+            cause.starts_with("Killed by a jackal on depth 1"),
+            "{cause}"
+        );
+        assert_eq!(game.player.hp, 0);
+
+        let turn = game.turn;
+        game.apply(Action::Wait);
+        assert_eq!(game.turn, turn, "no actions after death");
+    }
+
+    #[test]
+    fn the_player_slowly_heals() {
+        let mut game = corridor_game();
+        game.player.hp = 10;
+        for _ in 0..REGEN_INTERVAL * 2 {
+            game.apply(Action::Wait);
+        }
+        assert_eq!(game.player.hp, 12);
+        game.player.hp = game.player.max_hp;
+        for _ in 0..REGEN_INTERVAL {
+            game.apply(Action::Wait);
+        }
+        assert_eq!(game.player.hp, game.player.max_hp, "never above max");
     }
 
     /// Plays random moves on real floors and checks the rules that must
@@ -511,20 +677,27 @@ mod tests {
                             .map
                             .points()
                             .find(|&p| game.map.tile(p) == Tile::StairsDown);
-                        game.player = stairs.unwrap();
+                        game.player.pos = stairs.unwrap();
                         Action::Wait
                     }
                     _ => Action::Move(DIRECTIONS_8[dice.index(8)]),
                 };
                 game.apply(action);
+                if game.death.is_some() {
+                    break;
+                }
 
-                assert!(game.map.tile(game.player).is_walkable(), "seed {seed}");
+                assert!(game.map.tile(game.player.pos).is_walkable(), "seed {seed}");
+                assert!(
+                    game.monsters.iter().all(|m| m.hp > 0),
+                    "seed {seed}: dead monster"
+                );
                 for (i, m) in game.monsters.iter().enumerate() {
                     assert!(
                         game.map.tile(m.pos).is_walkable(),
                         "seed {seed}: monster in wall"
                     );
-                    assert_ne!(m.pos, game.player, "seed {seed}: monster on player");
+                    assert_ne!(m.pos, game.player.pos, "seed {seed}: monster on player");
                     let overlaps = game.monsters[i + 1..].iter().any(|o| o.pos == m.pos);
                     assert!(!overlaps, "seed {seed}: monsters overlap");
                 }
@@ -536,14 +709,25 @@ mod tests {
     fn same_seed_same_run() {
         let a = Game::new(1234);
         let b = Game::new(1234);
-        assert_eq!(a.player, b.player);
+        assert_eq!(a.player.pos, b.player.pos);
     }
 
     #[test]
-    fn repeated_messages_are_not_duplicated() {
+    fn repeated_messages_are_counted_not_duplicated() {
         let mut game = corridor_game();
         game.log("Hello");
         game.log("Hello");
-        assert_eq!(game.log.iter().filter(|m| *m == "Hello").count(), 1);
+        game.log("Hello");
+        assert_eq!(game.log.len(), 1);
+        assert_eq!(game.log[0].count, 3);
+        game.log("Bye");
+        game.log("Hello");
+        assert_eq!(game.log.len(), 3, "only consecutive repeats merge");
+    }
+
+    #[test]
+    fn articles() {
+        assert_eq!(article("rat"), "a");
+        assert_eq!(article("orc"), "an");
     }
 }

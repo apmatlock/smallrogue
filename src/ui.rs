@@ -12,7 +12,7 @@
 //! ```
 
 use crate::frame::{BLACK, Cell, Frame, Rgb};
-use crate::game::Game;
+use crate::game::{Game, MsgKind};
 use crate::geom::Point;
 use crate::map::Tile;
 use crate::monster::{Ai, Monster};
@@ -33,6 +33,10 @@ const TEXT: Rgb = Rgb(190, 190, 190);
 const TEXT_DIM: Rgb = Rgb(110, 110, 110);
 const TITLE: Rgb = Rgb(200, 60, 50);
 const BORDER: Rgb = Rgb(60, 60, 60);
+const GOOD: Rgb = Rgb(120, 200, 120);
+const BAD: Rgb = Rgb(225, 95, 80);
+const HEALTH_FULL: Rgb = Rgb(110, 25, 25);
+const HEALTH_EMPTY: Rgb = Rgb(35, 18, 18);
 
 pub fn draw(game: &Game, width: u16, height: u16) -> Frame {
     let mut frame = Frame::new(width, height);
@@ -76,8 +80,8 @@ fn camera_origin(player: i32, map_len: i32, view_len: i32) -> i32 {
 
 fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
     let origin = Point::new(
-        camera_origin(game.player.x, game.map.width(), view_w),
-        camera_origin(game.player.y, game.map.height(), view_h),
+        camera_origin(game.player.pos.x, game.map.width(), view_w),
+        camera_origin(game.player.pos.y, game.map.height(), view_h),
     );
 
     for sy in 0..view_h {
@@ -123,7 +127,7 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
         );
     }
 
-    let s = game.player - origin;
+    let s = game.player.pos - origin;
     frame.set(
         s.x,
         s.y,
@@ -163,15 +167,35 @@ fn draw_dividers(frame: &mut Frame, view_w: i32, view_h: i32, w: i32) {
 }
 
 fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
+    let width = SIDEBAR_WIDTH - 2;
+    let p = &game.player;
     frame.print(x, 0, "SMALLROGUE", TITLE);
-    frame.print(x, 2, &format!("Depth: {}", game.depth), TEXT);
-    frame.print(x, 3, &format!("Turn:  {}", game.turn), TEXT);
-    frame.print(x, 4, &format!("Seed:  {}", game.seed), TEXT_DIM);
+    draw_bar(
+        frame,
+        (x, 2, width),
+        &format!("Health {}/{}", p.hp, p.max_hp),
+        (p.hp, p.max_hp),
+        TEXT,
+    );
+    frame.print(
+        x,
+        3,
+        &format!("Str {}  Agi {}  Int {}", p.strength, p.agility, p.intellect),
+        TEXT,
+    );
+    frame.print(
+        x,
+        4,
+        &format!("Depth {}  Turn {}", game.depth, game.turn),
+        TEXT,
+    );
+    frame.print(x, 5, &format!("Seed {}", game.seed), TEXT_DIM);
 
     // Key help sits at the bottom of the sidebar.
     let keys = [
         "hjkl/arrows  move",
         "yubn    diagonals",
+        "walk into   attack",
         ".        wait",
         ">        descend",
         "c        close door",
@@ -182,14 +206,15 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         frame.print(x, keys_top + i as i32, line, TEXT_DIM);
     }
 
-    // Monsters in view, nearest first, in the space between.
+    // Monsters in view, nearest first, in the space between. Each gets
+    // a health bar behind its name.
     let mut in_view: Vec<&Monster> = game
         .monsters
         .iter()
         .filter(|m| game.is_visible(m.pos))
         .collect();
-    in_view.sort_by_key(|m| m.pos.dist_sq(game.player));
-    let list_top = 6;
+    in_view.sort_by_key(|m| m.pos.dist_sq(game.player.pos));
+    let list_top = 7;
     let room = (keys_top - 1 - list_top).max(0) as usize;
     for (i, m) in in_view.iter().take(room).enumerate() {
         let y = list_top + i as i32;
@@ -208,8 +233,36 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
             Ai::Wandering { .. } => "wandering",
             Ai::Hunting { .. } => "hunting",
         };
-        frame.print(x + 2, y, species.name, TEXT);
-        frame.print(x + 10, y, state, TEXT_DIM);
+        draw_bar(
+            frame,
+            (x + 2, y, width - 2),
+            &format!("{:<8}{state}", species.name),
+            (m.hp, species.max_hp),
+            TEXT,
+        );
+    }
+}
+
+/// Draws `label` on top of a bar whose filled part shows
+/// `current / max`. `area` is (x, y, width).
+fn draw_bar(frame: &mut Frame, area: (i32, i32, i32), label: &str, amount: (i32, i32), fg: Rgb) {
+    let (x, y, width) = area;
+    let (current, max) = amount;
+    // Round up, so anything alive shows at least one filled cell.
+    let filled = if max > 0 {
+        (current.max(0) * width + max - 1) / max
+    } else {
+        0
+    };
+    let mut label = label.chars();
+    for i in 0..width {
+        let ch = label.next().unwrap_or(' ');
+        let bg = if i < filled {
+            HEALTH_FULL
+        } else {
+            HEALTH_EMPTY
+        };
+        frame.set(x + i, y, Cell { ch, fg, bg });
     }
 }
 
@@ -217,9 +270,61 @@ fn draw_log(frame: &mut Frame, game: &Game, top: i32) {
     // Show the newest messages, newest at the bottom, older ones dimmer.
     let shown = game.log.iter().rev().take(LOG_HEIGHT as usize);
     for (i, msg) in shown.enumerate() {
-        let color = if i == 0 { TEXT } else { TEXT_DIM };
-        frame.print(1, top + LOG_HEIGHT - 1 - i as i32, msg, color);
+        let color = match msg.kind {
+            MsgKind::Info => TEXT,
+            MsgKind::Good => GOOD,
+            MsgKind::Bad => BAD,
+        };
+        let color = if i == 0 { color } else { faded(color) };
+        let text = if msg.count > 1 {
+            format!("{} (x{})", msg.text, msg.count)
+        } else {
+            msg.text.clone()
+        };
+        frame.print(1, top + LOG_HEIGHT - 1 - i as i32, &text, color);
     }
+}
+
+/// A darker version of a color, for older log lines.
+fn faded(c: Rgb) -> Rgb {
+    let f = |v: u8| (v as u32 * 60 / 100) as u8;
+    Rgb(f(c.0), f(c.1), f(c.2))
+}
+
+/// The screen shown after death: how it happened and the last few
+/// messages, so the player can see what went wrong.
+pub fn draw_death(game: &Game, width: u16, height: u16) -> Frame {
+    let mut frame = Frame::new(width, height);
+    let (w, h) = (width as i32, height as i32);
+    let center = |text: &str| (w - text.chars().count() as i32).max(0) / 2;
+
+    let cause = game.death.as_deref().unwrap_or("You died.");
+    let lines: Vec<(String, Rgb)> = vec![
+        ("You have died.".to_string(), TITLE),
+        (String::new(), TEXT),
+        (cause.to_string(), TEXT),
+        (format!("Seed {}", game.seed), TEXT_DIM),
+        (String::new(), TEXT),
+    ];
+    let recent: Vec<(String, Rgb)> = game
+        .log
+        .iter()
+        .rev()
+        .take(6)
+        .rev()
+        .map(|m| (m.text.clone(), TEXT_DIM))
+        .collect();
+    let footer = ("Press any key to leave the dungeon.".to_string(), TEXT);
+
+    let total = lines.len() + recent.len() + 2;
+    let mut y = ((h - total as i32) / 2).max(0);
+    for (text, color) in lines.iter().chain(&recent) {
+        frame.print(center(text), y, text, *color);
+        y += 1;
+    }
+    y += 1;
+    frame.print(center(&footer.0), y, &footer.0, footer.1);
+    frame
 }
 
 #[cfg(test)]
@@ -254,14 +359,14 @@ mod tests {
             let mut game = Game::new(seed);
             game.monsters.clear();
             let origin = Point::new(
-                camera_origin(game.player.x, game.map.width(), view_w),
-                camera_origin(game.player.y, game.map.height(), view_h),
+                camera_origin(game.player.pos.x, game.map.width(), view_w),
+                camera_origin(game.player.pos.y, game.map.height(), view_h),
             );
             let outside = game.map.points().find(|&p| {
                 let s = p - origin;
                 let off_view = s.x >= view_w || s.y >= view_h;
                 let on_screen = s.x >= 0 && s.y >= 0 && s.x < w as i32 && s.y < h as i32;
-                game.is_visible(p) && off_view && on_screen && p != game.player
+                game.is_visible(p) && off_view && on_screen && p != game.player.pos
             });
             let Some(p) = outside else { continue };
             game.monsters.push(Monster::new(Kind::Rat, p, Ai::Asleep));
@@ -271,6 +376,27 @@ mod tests {
             return;
         }
         panic!("no seed produced a visible tile outside the view");
+    }
+
+    #[test]
+    fn death_screen_shows_the_cause() {
+        let mut game = Game::new(1);
+        game.death = Some("Killed by a rat on depth 1 after 5 turns.".to_string());
+        let frame = draw_death(&game, 80, 24);
+        let text: String = (0..24).map(|y| row_text(&frame, y)).collect();
+        assert!(text.contains("You have died."));
+        assert!(text.contains("Killed by a rat"));
+    }
+
+    #[test]
+    fn health_bar_fills_in_proportion() {
+        let mut frame = Frame::new(10, 1);
+        draw_bar(&mut frame, (0, 0, 10), "", (5, 10), TEXT);
+        assert_eq!(frame.get(4, 0).bg, HEALTH_FULL);
+        assert_eq!(frame.get(5, 0).bg, HEALTH_EMPTY);
+        // One health left still shows a sliver.
+        draw_bar(&mut frame, (0, 0, 10), "", (1, 100), TEXT);
+        assert_eq!(frame.get(0, 0).bg, HEALTH_FULL);
     }
 
     #[test]
