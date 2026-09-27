@@ -1,0 +1,20 @@
+[package]
+name = "smallrogue"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crossterm = "0.29.0"
+
+# Keep debug builds light on this 2-core laptop, but optimize dependencies once.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
