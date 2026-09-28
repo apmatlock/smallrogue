@@ -155,7 +155,9 @@ impl Game {
 
         let item = self.player.item_mut(letter).unwrap();
         item.equipped = true;
-        let cursed = item.enchant < 0;
+        // Whether a curse is still active: a broken or expired one no
+        // longer counts, even if the enchantment is still negative.
+        let cursed = item.curse_turns > 0;
         if cursed {
             // You find out the hard way.
             item.known = true;
@@ -640,6 +642,45 @@ mod tests {
         );
         game.apply(Action::Equip('a'));
         assert_eq!(game.player.weapon().map(|w| w.letter), Some('a'));
+    }
+
+    #[test]
+    fn a_broken_or_expired_curse_stays_gone() {
+        let mut game = room_game();
+        let scroll_kind = ItemKind::Scroll(ScrollKind::Enchanting);
+        game.lore.learn(scroll_kind);
+        let mace = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Weapon(WeaponKind::Mace), -3),
+        );
+        let scroll = give(&mut game, scroll_kind);
+        game.apply(Action::Read {
+            scroll,
+            target: Some(mace),
+        }); // unworn: now -2, no curse
+        game.log.clear();
+        game.apply(Action::Equip(mace));
+        let item = game.player.item(mace).unwrap();
+        assert!(!item.known, "no curse, so no early reveal");
+        assert!(game.log.iter().all(|m| !m.text.contains("cursed")));
+        game.apply(Action::Equip(mace));
+        assert!(game.player.weapon().is_none(), "comes straight off");
+
+        // A curse that ran out doesn't come back on re-equipping.
+        let armor = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Armor(ArmorKind::Chain), -1),
+        );
+        game.apply(Action::Equip(armor));
+        for _ in 0..50 {
+            game.apply(Action::Wait);
+        }
+        game.apply(Action::Equip(armor)); // off
+        game.log.clear();
+        game.apply(Action::Equip(armor)); // on again
+        assert!(game.log.iter().all(|m| !m.text.contains("cursed")));
+        game.apply(Action::Equip(armor));
+        assert!(game.player.armor().is_none());
     }
 
     #[test]
