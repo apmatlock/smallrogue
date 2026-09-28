@@ -2,7 +2,7 @@
 
 A grim, fast, endless dungeon crawler for the terminal, written in Rust. Descend through randomly generated rooms and corridors, fight what lives there, and use what you find. There is no bottom: how deep you get is your score.
 
-The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, and items with an inventory all work. Item identification, character growth, hunger, traps, themed zones and high scores are still to come.
+The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, items with an inventory, and item identification all work. Character growth, hunger, traps, themed zones and high scores are still to come.
 
 ## Build and run
 
@@ -44,7 +44,7 @@ Each floor's layout, monsters and items come from the run seed and the floor's d
 | `c` | Close an adjacent open door; choose a direction if several are nearby |
 | `g` or `,` | Pick up an item (walking over an item also picks it up) |
 | `i` | Open your pack; press an item's letter for details and actions |
-| `e` | Equip or remove a weapon or armor |
+| `e` | Equip or remove a weapon, armor or ring |
 | `d` | Drop an item |
 | `q` | Drink a potion |
 | `r` | Read a scroll |
@@ -70,6 +70,7 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 | `[` | Armor |
 | `!` | Potion |
 | `?` | Scroll |
+| `=` | Ring |
 
 Walls and closed doors block sight. What you can see is drawn in full color. Places you have explored stay on screen in cold, dim colors, along with the items lying there. Monsters are only shown while in sight.
 
@@ -87,9 +88,14 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 - Weapons: dagger, sword, mace and battle axe. Lighter weapons hit more often; heavier ones hit harder.
 - Armor: leather, chain mail and plate. Heavier armor protects more but makes you easier to hit.
-- Weapons and armor can be enchanted, from -1 to +2.
+- Rings: regeneration, accuracy, protection and awareness, which widens your sight. You can wear two.
+- Enchantments make items stronger or weaker: weapons and armor roll from -3 to +2, rings from -3 to +3.
 - Potions: healing, strength, life, and decay, which hurts.
-- Scrolls: teleportation, magic mapping, enchanting, and aggravate monsters, which wakes the whole floor.
+- Scrolls: teleportation, magic mapping, enchanting, identify, and aggravate monsters, which wakes the whole floor.
+
+**Identification.** Potions, scrolls and rings look different in every run: a murky potion might heal you in one game and burn you in the next. Drinking or reading one teaches you that kind for the rest of the run, and putting on a ring tells you what kind it is. Enchantments stay hidden until you wear an item for about 300 turns (less with more Intellect) or read a scroll of identify on it.
+
+**Curses.** Gear with a negative enchantment is cursed. Once equipped, it can't be taken off for 50 turns per point below zero, and you find out the moment you put it on. Reading enchanting on a cursed item breaks the curse.
 
 Your pack holds 26 items. Potions and scrolls of the same kind stack, and each item keeps its letter while you carry it.
 
@@ -112,6 +118,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
+| `lore` | Per-run item appearances, what the player has identified, and item names |
 | `monster`, `ai`, `path` | Monster definitions, spawning, behavior, and pathfinding |
 | `dungeon` | Seeded room, corridor, door, and stair generation |
 | `map`, `grid`, `geom` | Tiles, grid storage, and geometry |
@@ -127,7 +134,6 @@ The terminal renderer draws only changed cells, and the game waits for input wit
 
 The intended game is a grim, fast, endless fantasy crawl with short runs and depth reached as the score. Next milestones include:
 
-- Item identification: random potion and scroll appearances each run, and hidden enchantments
 - Experience levels and skills that improve through use
 - Hunger and traps
 - Distinct dungeon zones and increasing difficulty

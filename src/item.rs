@@ -4,12 +4,13 @@
 //! adding one means a new enum variant and one entry.
 
 use crate::dungeon::{self, Level};
-use crate::frame::Rgb;
 use crate::geom::Point;
 use crate::rng::Rng;
-use crate::text::article;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A cursed item stays stuck for this many turns per point below zero.
+pub const CURSE_TURNS_PER_POINT: u32 = 50;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WeaponKind {
     Dagger,
     Sword,
@@ -17,14 +18,14 @@ pub enum WeaponKind {
     Axe,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ArmorKind {
     Leather,
     Chain,
     Plate,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PotionKind {
     Healing,
     Strength,
@@ -32,12 +33,21 @@ pub enum PotionKind {
     Decay,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScrollKind {
     Teleportation,
     MagicMapping,
     Enchanting,
     Aggravate,
+    Identify,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RingKind {
+    Regeneration,
+    Accuracy,
+    Protection,
+    Awareness,
 }
 
 pub struct WeaponStats {
@@ -60,7 +70,7 @@ pub struct ArmorStats {
     pub weight: i32,
 }
 
-/// Name, description and rarity for potions and scrolls.
+/// Name, description and rarity for potions, scrolls and rings.
 pub struct MagicStats {
     pub name: &'static str,
     pub about: &'static str,
@@ -164,11 +174,12 @@ impl PotionKind {
 }
 
 impl ScrollKind {
-    pub const ALL: [ScrollKind; 4] = [
+    pub const ALL: [ScrollKind; 5] = [
         Self::Teleportation,
         Self::MagicMapping,
         Self::Enchanting,
         Self::Aggravate,
+        Self::Identify,
     ];
 
     pub fn stats(self) -> &'static MagicStats {
@@ -193,16 +204,56 @@ impl ScrollKind {
                 about: "Lets out a shriek that alerts the whole floor.",
                 weight: 8,
             },
+            Self::Identify => &MagicStats {
+                name: "identify",
+                about: "Reveals the true nature of one item.",
+                weight: 18,
+            },
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+impl RingKind {
+    pub const ALL: [RingKind; 4] = [
+        Self::Regeneration,
+        Self::Accuracy,
+        Self::Protection,
+        Self::Awareness,
+    ];
+
+    pub fn stats(self) -> &'static MagicStats {
+        match self {
+            Self::Regeneration => &MagicStats {
+                name: "regeneration",
+                about: "Heals your wounds faster.",
+                weight: 1,
+            },
+            Self::Accuracy => &MagicStats {
+                name: "accuracy",
+                about: "Guides your blows: +5% to hit per point.",
+                weight: 1,
+            },
+            Self::Protection => &MagicStats {
+                name: "protection",
+                about: "Wards off harm: +1 armor per point.",
+                weight: 1,
+            },
+            Self::Awareness => &MagicStats {
+                name: "awareness",
+                about: "Sharpens your senses: +1 sight radius per point.",
+                weight: 1,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ItemKind {
     Weapon(WeaponKind),
     Armor(ArmorKind),
     Potion(PotionKind),
     Scroll(ScrollKind),
+    Ring(RingKind),
 }
 
 impl ItemKind {
@@ -212,18 +263,7 @@ impl ItemKind {
             Self::Armor(_) => '[',
             Self::Potion(_) => '!',
             Self::Scroll(_) => '?',
-        }
-    }
-
-    pub fn color(self) -> Rgb {
-        match self {
-            Self::Weapon(_) => Rgb(170, 175, 195),
-            Self::Armor(_) => Rgb(160, 135, 100),
-            Self::Potion(PotionKind::Healing) => Rgb(215, 80, 90),
-            Self::Potion(PotionKind::Strength) => Rgb(215, 145, 60),
-            Self::Potion(PotionKind::Life) => Rgb(235, 215, 120),
-            Self::Potion(PotionKind::Decay) => Rgb(115, 170, 80),
-            Self::Scroll(_) => Rgb(225, 215, 185),
+            Self::Ring(_) => '=',
         }
     }
 
@@ -232,16 +272,18 @@ impl ItemKind {
         matches!(self, Self::Potion(_) | Self::Scroll(_))
     }
 
+    /// Things you wear or wield: they carry an enchantment, can be
+    /// cursed, and are identified by wearing them.
     pub fn is_equipment(self) -> bool {
-        matches!(self, Self::Weapon(_) | Self::Armor(_))
+        matches!(self, Self::Weapon(_) | Self::Armor(_) | Self::Ring(_))
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub kind: ItemKind,
-    /// Bonus (or penalty) on weapons and armor, like the +1 in "+1
-    /// sword". Always 0 for potions and scrolls.
+    /// Bonus (or penalty) on equipment, like the +1 in "+1 sword".
+    /// Always 0 for potions and scrolls.
     pub enchant: i32,
     /// How many are in this stack. Always 1 for equipment.
     pub count: u32,
@@ -249,76 +291,39 @@ pub struct Item {
     /// the item leaves the pack, so muscle memory works.
     pub letter: char,
     pub equipped: bool,
+    /// Whether the player knows this piece of equipment's enchantment.
+    /// (Potions and scrolls are known by kind instead; see `Lore`.)
+    pub known: bool,
+    /// Turns spent equipped while unknown, counting toward revealing it.
+    pub worn_turns: u32,
+    /// Turns left before a cursed item can be taken off. Only counts
+    /// down while equipped. 0 means not (or no longer) cursed.
+    pub curse_turns: u32,
 }
 
 impl Item {
     pub fn new(kind: ItemKind) -> Self {
+        Self::enchanted(kind, 0)
+    }
+
+    /// A new item with the given enchantment. Negative ones are cursed
+    /// for 50 turns per point below zero.
+    pub fn enchanted(kind: ItemKind, enchant: i32) -> Self {
         Self {
             kind,
-            enchant: 0,
+            enchant,
             count: 1,
             letter: ' ',
             equipped: false,
+            known: false,
+            worn_turns: 0,
+            curse_turns: CURSE_TURNS_PER_POINT * (-enchant).max(0) as u32,
         }
     }
 
-    /// The item's name without an article, e.g. "+1 sword" or
-    /// "3 potions of healing".
-    pub fn name(&self) -> String {
-        let enchant = match self.enchant {
-            0 => String::new(),
-            e => format!("{e:+} "),
-        };
-        let (noun, what) = match self.kind {
-            ItemKind::Weapon(w) => return format!("{enchant}{}", w.stats().name),
-            ItemKind::Armor(a) => return format!("{enchant}{}", a.stats().name),
-            ItemKind::Potion(p) => ("potion", p.stats().name),
-            ItemKind::Scroll(s) => ("scroll", s.stats().name),
-        };
-        if self.count > 1 {
-            format!("{} {noun}s of {what}", self.count)
-        } else {
-            format!("{noun} of {what}")
-        }
-    }
-
-    /// The name with "a"/"an" in front when there is just one. Armor
-    /// names like "chain mail" read better without one.
-    pub fn with_article(&self) -> String {
-        let name = self.name();
-        if self.count > 1 || matches!(self.kind, ItemKind::Armor(_)) {
-            name
-        } else {
-            format!("{} {name}", article(&name))
-        }
-    }
-
-    /// Lines describing the item, for the inventory screen.
-    pub fn describe(&self) -> Vec<String> {
-        let e = self.enchant;
-        match self.kind {
-            ItemKind::Weapon(w) => {
-                let s = w.stats();
-                vec![
-                    s.about.to_string(),
-                    format!(
-                        "Damage {}-{}, accuracy {:+}.",
-                        (s.damage.0 + e).max(1),
-                        (s.damage.1 + e).max(1),
-                        s.accuracy + e
-                    ),
-                ]
-            }
-            ItemKind::Armor(a) => {
-                let s = a.stats();
-                vec![
-                    s.about.to_string(),
-                    format!("Armor {}, dodge {:+}.", (s.armor + e).max(0), s.dodge),
-                ]
-            }
-            ItemKind::Potion(p) => vec![p.stats().about.to_string()],
-            ItemKind::Scroll(s) => vec![s.stats().about.to_string()],
-        }
+    /// Equipped and still cursed: it can't be taken off yet.
+    pub fn is_stuck(&self) -> bool {
+        self.equipped && self.curse_turns > 0
     }
 }
 
@@ -352,14 +357,16 @@ pub fn random_item(rng: &mut Rng) -> Item {
         Armor,
         Potion,
         Scroll,
+        Ring,
     }
     let category = weighted(
         rng,
         &[
-            (Category::Potion, 40),
-            (Category::Scroll, 35),
-            (Category::Weapon, 12),
-            (Category::Armor, 13),
+            (Category::Potion, 38),
+            (Category::Scroll, 33),
+            (Category::Weapon, 11),
+            (Category::Armor, 11),
+            (Category::Ring, 7),
         ],
     );
     let kind = match category {
@@ -391,12 +398,24 @@ pub fn random_item(rng: &mut Rng) -> Item {
                 .collect();
             ItemKind::Scroll(weighted(rng, &table))
         }
+        Category::Ring => {
+            let table: Vec<_> = RingKind::ALL
+                .iter()
+                .map(|&k| (k, k.stats().weight))
+                .collect();
+            ItemKind::Ring(weighted(rng, &table))
+        }
     };
-    let mut item = Item::new(kind);
-    if kind.is_equipment() {
-        item.enchant = weighted(rng, &[(0, 70), (1, 20), (2, 7), (-1, 3)]);
-    }
-    item
+    // About 6% of equipment is cursed: 3% at -1, 2% at -2, 1% at -3.
+    // Rings are only useful when enchanted, so they roll higher.
+    let enchant = match kind {
+        ItemKind::Ring(_) => weighted(rng, &[(1, 50), (2, 30), (3, 14), (-1, 3), (-2, 2), (-3, 1)]),
+        k if k.is_equipment() => {
+            weighted(rng, &[(0, 70), (1, 20), (2, 4), (-1, 3), (-2, 2), (-3, 1)])
+        }
+        _ => 0,
+    };
+    Item::enchanted(kind, enchant)
 }
 
 /// Scatters a few random items across a new floor, never on the stairs
@@ -426,21 +445,24 @@ mod tests {
     use crate::dungeon::{STANDARD, generate};
 
     #[test]
-    fn names_read_naturally() {
-        let mut sword = Item::new(ItemKind::Weapon(WeaponKind::Sword));
-        assert_eq!(sword.with_article(), "a sword");
-        sword.enchant = 1;
-        assert_eq!(sword.with_article(), "a +1 sword");
-        sword.enchant = -1;
-        assert_eq!(sword.name(), "-1 sword");
+    fn negative_items_are_cursed_for_50_turns_per_point() {
+        let sword = ItemKind::Weapon(WeaponKind::Sword);
+        assert_eq!(Item::enchanted(sword, 1).curse_turns, 0);
+        assert_eq!(Item::enchanted(sword, -1).curse_turns, 50);
+        assert_eq!(Item::enchanted(sword, -3).curse_turns, 150);
+    }
 
-        let mut potion = Item::new(ItemKind::Potion(PotionKind::Healing));
-        assert_eq!(potion.with_article(), "a potion of healing");
-        potion.count = 3;
-        assert_eq!(potion.with_article(), "3 potions of healing");
-
-        let armor = Item::new(ItemKind::Armor(ArmorKind::Leather));
-        assert_eq!(armor.with_article(), "leather armor");
+    #[test]
+    fn curses_are_rare_but_happen() {
+        let mut rng = Rng::new(9);
+        let gear: Vec<Item> = (0..20_000)
+            .map(|_| random_item(&mut rng))
+            .filter(|i| matches!(i.kind, ItemKind::Weapon(_) | ItemKind::Armor(_)))
+            .collect();
+        let cursed = gear.iter().filter(|i| i.enchant < 0).count();
+        let percent = cursed * 100 / gear.len();
+        assert!((4..=8).contains(&percent), "{percent}% cursed");
+        assert!(gear.iter().any(|i| i.enchant == -3));
     }
 
     #[test]

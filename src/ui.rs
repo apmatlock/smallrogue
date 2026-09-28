@@ -15,6 +15,7 @@ use crate::frame::{BLACK, Cell, Frame, Rgb};
 use crate::game::{Game, MsgKind};
 use crate::geom::Point;
 use crate::item::{Item, ItemKind};
+use crate::lore::Lore;
 use crate::map::Tile;
 use crate::menu::{self, Line};
 use crate::monster::{Ai, Monster};
@@ -102,20 +103,28 @@ pub fn item_list(game: &Game, show: impl Fn(&Item) -> bool) -> Vec<Line> {
                 (true, _) => " (worn)",
                 _ => "",
             };
-            Line::new(format!("{}) {}{worn}", i.letter, i.name()), TEXT)
+            let cursed = if i.is_stuck() && i.known {
+                " (cursed)"
+            } else {
+                ""
+            };
+            let name = game.lore.name(i);
+            Line::new(format!("{}) {name}{worn}{cursed}", i.letter), TEXT)
         })
         .collect()
 }
 
 /// The inside of the box describing one item, with the keys that act
 /// on it.
-pub fn item_details(item: &Item) -> Vec<Line> {
-    let mut lines: Vec<Line> = item
-        .describe()
+pub fn item_details(lore: &Lore, item: &Item) -> Vec<Line> {
+    let mut lines: Vec<Line> = lore
+        .describe(item)
         .into_iter()
         .map(|text| Line::new(text, TEXT))
         .collect();
     let actions = match item.kind {
+        ItemKind::Ring(_) if item.equipped => "e) take off   d) drop",
+        ItemKind::Ring(_) => "e) put on   d) drop",
         ItemKind::Weapon(_) | ItemKind::Armor(_) if item.equipped => "e) remove   d) drop",
         ItemKind::Weapon(_) | ItemKind::Armor(_) => "e) equip   d) drop",
         ItemKind::Potion(_) => "q) drink   d) drop",
@@ -198,7 +207,7 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
         if s.x < 0 || s.y < 0 || s.x >= view_w || s.y >= view_h {
             continue;
         }
-        let fg = fi.item.kind.color();
+        let fg = game.lore.color(fi.item.kind);
         let fg = if game.is_visible(fi.pos) {
             fg
         } else if game.map.is_revealed(fi.pos) {
@@ -301,27 +310,32 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         TEXT,
     );
     frame.print(x, 5, &format!("Seed {}", game.seed), TEXT_DIM);
-    for (y, item) in [(6, p.weapon()), (7, p.armor())] {
-        if let Some(item) = item {
-            let kind = item.kind;
-            frame.set(
-                x,
-                y,
-                Cell {
-                    ch: kind.glyph(),
-                    fg: kind.color(),
-                    bg: BLACK,
-                },
-            );
-            frame.print(x + 2, y, &item.name(), TEXT);
-        }
+    // Equipment: weapon, armor, then rings, one line each.
+    let gear: Vec<&Item> = p
+        .weapon()
+        .into_iter()
+        .chain(p.armor())
+        .chain(p.rings())
+        .collect();
+    for (i, item) in gear.iter().enumerate() {
+        let y = 6 + i as i32;
+        frame.set(
+            x,
+            y,
+            Cell {
+                ch: item.kind.glyph(),
+                fg: game.lore.color(item.kind),
+                bg: BLACK,
+            },
+        );
+        frame.print(x + 2, y, &game.lore.name(item), TEXT);
     }
 
     // Key hints sit at the bottom of the sidebar.
     let keys = ["?  all keys", "i  inventory"];
     // On short terminals the hints would cover the status above, which
     // matters more, so they are left out.
-    let list_top = 9;
+    let list_top = 7 + gear.len() as i32;
     let keys_top = height - keys.len() as i32;
     let show_keys = keys_top >= list_top;
     if show_keys {

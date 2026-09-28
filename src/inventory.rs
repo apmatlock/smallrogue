@@ -5,8 +5,10 @@
 
 use crate::game::{Game, MsgKind, Outcome};
 use crate::geom::{DIRECTIONS_8, Point};
-use crate::item::{FloorItem, ItemKind, PotionKind, ScrollKind};
+use crate::item::{FloorItem, Item, ItemKind, PotionKind, ScrollKind};
+use crate::lore::Lore;
 use crate::monster::Ai;
+use crate::player::RING_SLOTS;
 
 /// Health restored by a potion of healing.
 const HEALING: i32 = 15;
@@ -24,8 +26,28 @@ impl Game {
     pub fn scroll_needs_target(&self, letter: char) -> bool {
         matches!(
             self.player.item(letter).map(|i| i.kind),
-            Some(ItemKind::Scroll(ScrollKind::Enchanting))
+            Some(ItemKind::Scroll(
+                ScrollKind::Enchanting | ScrollKind::Identify
+            ))
         )
+    }
+
+    /// Could `item` be the target of the scroll with letter `scroll`?
+    pub fn is_read_target(&self, scroll: char, item: &Item) -> bool {
+        match self.player.item(scroll).map(|i| i.kind) {
+            Some(ItemKind::Scroll(ScrollKind::Enchanting)) => item.kind.is_equipment(),
+            Some(ItemKind::Scroll(ScrollKind::Identify)) => {
+                item.letter != scroll && !self.lore.fully_known(item)
+            }
+            _ => false,
+        }
+    }
+
+    /// Learns a kind, noting it in the log if it's news.
+    fn learn(&mut self, kind: ItemKind) {
+        if self.lore.learn(kind) {
+            self.log(&format!("It's a {}!", Lore::true_name(kind)));
+        }
     }
 
     pub(crate) fn pick_up(&mut self) -> Outcome {
@@ -35,7 +57,7 @@ impl Game {
             return Outcome::Free;
         };
         let item = self.items.remove(index).item;
-        let name = item.with_article();
+        let name = self.lore.with_article(&item);
         match self.player.add_item(item) {
             Ok(letter) => {
                 self.log(&format!("You pick up {name} ({letter})."));
@@ -56,27 +78,44 @@ impl Game {
             self.log("There is already something here.");
             return Outcome::Free;
         }
+        if let Some(item) = self.player.item(letter)
+            && item.is_stuck()
+        {
+            let name = self.lore.name(item);
+            self.log(&format!("Your {name} is cursed. You can't let go of it."));
+            return Outcome::Free;
+        }
         let Some(item) = self.player.remove_item(letter) else {
             return Outcome::Free;
         };
-        self.log(&format!("You drop {}.", item.with_article()));
+        self.log(&format!("You drop {}.", self.lore.with_article(&item)));
         self.items.push(FloorItem { pos, item });
         Outcome::TookTurn
     }
 
-    /// Equips a weapon or armor, swapping out whatever was in that
-    /// slot. Equipping something already equipped takes it off.
+    /// Equips a weapon, armor or ring. Equipping something already
+    /// equipped takes it off, unless a curse holds it in place.
     pub(crate) fn equip(&mut self, letter: char) -> Outcome {
         let Some(item) = self.player.item(letter) else {
             return Outcome::Free;
         };
         let kind = item.kind;
-        let name = item.with_article();
+        let name = self.lore.with_article(item);
         if !kind.is_equipment() {
             self.log("You can't equip that.");
             return Outcome::Free;
         }
+
         if item.equipped {
+            if item.is_stuck() {
+                let turns = item.curse_turns;
+                let name = self.lore.name(item);
+                self.log_as(
+                    &format!("Your {name} is cursed! It won't come off for {turns} more turns."),
+                    MsgKind::Bad,
+                );
+                return Outcome::Free;
+            }
             self.player.item_mut(letter).unwrap().equipped = false;
             match kind {
                 ItemKind::Weapon(_) => self.log(&format!("You put away {name}.")),
@@ -84,17 +123,59 @@ impl Game {
             }
             return Outcome::TookTurn;
         }
-        // Only one weapon and one armor at a time.
-        let same_slot = |k: ItemKind| std::mem::discriminant(&k) == std::mem::discriminant(&kind);
-        for other in &mut self.player.inventory {
-            if same_slot(other.kind) {
-                other.equipped = false;
+
+        // Make room: rings need a free hand; a weapon or armor replaces
+        // the one in its slot, unless that one is cursed.
+        if let ItemKind::Ring(_) = kind {
+            if self.player.rings().count() >= RING_SLOTS {
+                self.log("You are already wearing two rings. Take one off first.");
+                return Outcome::Free;
+            }
+        } else {
+            let same_slot =
+                |k: ItemKind| std::mem::discriminant(&k) == std::mem::discriminant(&kind);
+            let current = self
+                .player
+                .inventory
+                .iter()
+                .find(|i| i.equipped && same_slot(i.kind));
+            if let Some(current) = current {
+                if current.is_stuck() {
+                    let name = self.lore.name(current);
+                    self.log_as(
+                        &format!("Your cursed {name} won't let you change it."),
+                        MsgKind::Bad,
+                    );
+                    return Outcome::Free;
+                }
+                let current = current.letter;
+                self.player.item_mut(current).unwrap().equipped = false;
             }
         }
-        self.player.item_mut(letter).unwrap().equipped = true;
+
+        let item = self.player.item_mut(letter).unwrap();
+        item.equipped = true;
+        let cursed = item.enchant < 0;
+        if cursed {
+            // You find out the hard way.
+            item.known = true;
+        }
         match kind {
             ItemKind::Weapon(_) => self.log(&format!("You are now wielding {name}.")),
+            ItemKind::Ring(_) => {
+                self.log(&format!("You put on {name}."));
+                // You feel what a ring does as soon as it's on.
+                self.learn(kind);
+            }
             _ => self.log(&format!("You are now wearing {name}.")),
+        }
+        if cursed {
+            let item = self.player.item(letter).unwrap();
+            let (name, turns) = (self.lore.name(item), item.curse_turns);
+            self.log_as(
+                &format!("It's a cursed {name}! It won't come off for {turns} turns."),
+                MsgKind::Bad,
+            );
         }
         Outcome::TookTurn
     }
@@ -105,6 +186,7 @@ impl Game {
             return Outcome::Free;
         };
         self.player.take_one(letter);
+        self.learn(ItemKind::Potion(kind));
         let p = &mut self.player;
         match kind {
             PotionKind::Healing => {
@@ -138,44 +220,63 @@ impl Game {
         Outcome::TookTurn
     }
 
+    /// Reads a scroll. Enchanting and identify act on `target`.
+    ///
+    /// If the player already knows the scroll, a missing or unsuitable
+    /// target cancels the reading. If they don't, the scroll is used up
+    /// anyway: otherwise the target prompt would reveal what an unknown
+    /// scroll is for free.
     pub(crate) fn read(&mut self, letter: char, target: Option<char>) -> Outcome {
         let Some(ItemKind::Scroll(kind)) = self.player.item(letter).map(|i| i.kind) else {
             self.log("You can't read that.");
             return Outcome::Free;
         };
-        // Check the enchanting target before using up the scroll.
-        let target = match kind {
-            ScrollKind::Enchanting => {
-                let valid = target
-                    .and_then(|t| self.player.item(t))
-                    .is_some_and(|i| i.kind.is_equipment());
-                if !valid {
-                    self.log("That scroll needs a weapon or armor to enchant.");
-                    return Outcome::Free;
-                }
-                target
-            }
-            _ => None,
-        };
+        let known = self.lore.knows(ItemKind::Scroll(kind));
+        let target = target.filter(|&t| {
+            self.player
+                .item(t)
+                .is_some_and(|item| self.is_read_target(letter, item))
+        });
+        let needs_target = self.scroll_needs_target(letter);
+        if needs_target && target.is_none() && known {
+            self.log("You need to choose something for that scroll to work on.");
+            return Outcome::Free;
+        }
         self.player.take_one(letter);
+        self.learn(ItemKind::Scroll(kind));
 
-        match kind {
-            ScrollKind::Teleportation => self.teleport_player(),
-            ScrollKind::MagicMapping => {
+        match (kind, target) {
+            (ScrollKind::Teleportation, _) => self.teleport_player(),
+            (ScrollKind::MagicMapping, _) => {
                 self.map_whole_floor();
                 self.log_as("A map of this floor forms in your mind.", MsgKind::Good);
             }
-            ScrollKind::Enchanting => {
-                // `target` was checked above, before the scroll was used.
-                let item = self.player.item_mut(target.unwrap()).unwrap();
+            (ScrollKind::Enchanting, Some(t)) => {
+                let item = self.player.item_mut(t).unwrap();
                 item.enchant += 1;
-                let name = item.name();
+                let broke_curse = item.curse_turns > 0;
+                item.curse_turns = 0;
+                let name = self.lore.name(self.player.item(t).unwrap());
                 self.log_as(
                     &format!("Your {name} glows blue for a moment."),
                     MsgKind::Good,
                 );
+                if broke_curse {
+                    self.log_as("The curse on it is broken.", MsgKind::Good);
+                }
             }
-            ScrollKind::Aggravate => {
+            (ScrollKind::Identify, Some(t)) => {
+                let item = self.player.item_mut(t).unwrap();
+                item.known = true;
+                let kind = item.kind;
+                self.lore.learn(kind);
+                let name = self.lore.with_article(self.player.item(t).unwrap());
+                self.log_as(&format!("It is {name}."), MsgKind::Good);
+            }
+            (ScrollKind::Enchanting | ScrollKind::Identify, None) => {
+                self.log("Its magic fades with nothing to work on.");
+            }
+            (ScrollKind::Aggravate, _) => {
                 let last_seen = self.player.pos;
                 for m in &mut self.monsters {
                     m.ai = Ai::Hunting { last_seen };
@@ -229,7 +330,9 @@ impl Game {
 mod tests {
     use crate::game::{Action, Game};
     use crate::geom::Point;
-    use crate::item::{ArmorKind, FloorItem, Item, ItemKind, PotionKind, ScrollKind, WeaponKind};
+    use crate::item::{
+        ArmorKind, FloorItem, Item, ItemKind, PotionKind, RingKind, ScrollKind, WeaponKind,
+    };
     use crate::map::{Map, Tile};
     use crate::monster::{Ai, Kind, Monster};
 
@@ -264,7 +367,8 @@ mod tests {
         });
         game.apply(Action::Move(Point::new(1, 0)));
         assert!(game.items.is_empty());
-        assert_eq!(game.player.item('d').map(Item::name), Some("dagger".into()));
+        let dagger = game.player.item('d').unwrap();
+        assert_eq!(dagger.kind, ItemKind::Weapon(WeaponKind::Dagger));
         assert_eq!(last_log(&game), "You pick up a dagger (d).");
         assert_eq!(game.turn, 1, "picking up is part of the step");
     }
@@ -278,7 +382,7 @@ mod tests {
         game.apply(Action::Drop('b'));
         assert_eq!(last_log(&game), "There is already something here.");
         game.apply(Action::PickUp);
-        assert_eq!(game.player.item('a').map(Item::name), Some("sword".into()));
+        assert_eq!(game.lore.name(game.player.item('a').unwrap()), "+0 sword");
     }
 
     #[test]
@@ -341,7 +445,7 @@ mod tests {
         let mut game = room_game();
         game.player.hp = 1;
         // The drink will land exactly on a turn when healing happens.
-        game.turn = crate::game::REGEN_INTERVAL - 1;
+        game.player.regen_progress = 99;
         let decay = give(&mut game, ItemKind::Potion(PotionKind::Decay));
         game.apply(Action::Drink(decay));
         assert!(game.death.is_some());
@@ -381,6 +485,8 @@ mod tests {
     #[test]
     fn enchanting_needs_a_valid_target() {
         let mut game = room_game();
+        // This test is about a scroll the player already knows.
+        game.lore.learn(ItemKind::Scroll(ScrollKind::Enchanting));
         let scroll = give(&mut game, ItemKind::Scroll(ScrollKind::Enchanting));
         assert!(game.scroll_needs_target(scroll));
 
@@ -396,7 +502,8 @@ mod tests {
             target: Some('b'),
         });
         assert_eq!(game.player.item('b').unwrap().enchant, 1);
-        assert_eq!(game.player.item('b').unwrap().name(), "+1 leather armor");
+        let armor = game.player.item('b').unwrap();
+        assert_eq!(game.lore.name(armor), "+1 leather armor");
         assert!(game.player.item(scroll).is_none());
     }
 
@@ -426,5 +533,194 @@ mod tests {
         game.apply(Action::Move(Point::new(1, 0)));
         assert_eq!(game.items.len(), 1);
         assert!(last_log(&game).contains("pack is full"));
+    }
+
+    // ---- Identification, rings and curses ---------------------------
+
+    fn give_item(game: &mut Game, item: Item) -> char {
+        game.player.add_item(item).unwrap()
+    }
+
+    #[test]
+    fn drinking_an_unknown_potion_teaches_it() {
+        let mut game = room_game();
+        let kind = ItemKind::Potion(PotionKind::Strength);
+        let letter = give(&mut game, kind);
+        assert!(!game.lore.knows(kind));
+        game.apply(Action::Drink(letter));
+        assert!(game.lore.knows(kind));
+        assert!(
+            game.log
+                .iter()
+                .any(|m| m.text == "It's a potion of strength!")
+        );
+    }
+
+    #[test]
+    fn an_unknown_targeted_scroll_is_used_up_even_without_a_target() {
+        let mut game = room_game();
+        let kind = ItemKind::Scroll(ScrollKind::Enchanting);
+        let scroll = give(&mut game, kind);
+        game.apply(Action::Read {
+            scroll,
+            target: None,
+        });
+        assert!(game.player.item(scroll).is_none(), "used up");
+        assert!(game.lore.knows(kind), "and learned");
+        assert_eq!(game.turn, 1);
+
+        // Once known, reading without a target is refused instead.
+        let scroll = give(&mut game, kind);
+        game.apply(Action::Read {
+            scroll,
+            target: None,
+        });
+        assert!(game.player.item(scroll).is_some());
+        assert_eq!(game.turn, 1);
+    }
+
+    #[test]
+    fn identify_reveals_gear_and_kinds() {
+        let mut game = room_game();
+        let identify = ItemKind::Scroll(ScrollKind::Identify);
+        let axe = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Weapon(WeaponKind::Axe), 2),
+        );
+        let scroll = give(&mut game, identify);
+        assert!(game.is_read_target(scroll, game.player.item(axe).unwrap()));
+        assert!(
+            !game.is_read_target(scroll, game.player.item('a').unwrap()),
+            "sword is known"
+        );
+        game.apply(Action::Read {
+            scroll,
+            target: Some(axe),
+        });
+        assert!(game.player.item(axe).unwrap().known);
+        assert_eq!(last_log(&game), "It is a +2 battle axe.");
+
+        let potion = give(&mut game, ItemKind::Potion(PotionKind::Life));
+        let scroll = give(&mut game, identify);
+        game.apply(Action::Read {
+            scroll,
+            target: Some(potion),
+        });
+        assert!(game.lore.knows(ItemKind::Potion(PotionKind::Life)));
+    }
+
+    #[test]
+    fn cursed_gear_sticks_until_the_curse_fades() {
+        let mut game = room_game();
+        let cursed = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Weapon(WeaponKind::Mace), -2),
+        );
+        game.apply(Action::Equip(cursed));
+        let mace = game.player.item(cursed).unwrap();
+        assert!(mace.known, "a curse reveals itself");
+        // -2 means 100 turns, and equipping it used the first one.
+        assert_eq!(mace.curse_turns, 99);
+        assert!(last_log(&game).contains("cursed"));
+
+        let turn = game.turn;
+        game.apply(Action::Equip(cursed)); // try to take it off
+        game.apply(Action::Equip('a')); // try to swap to the sword
+        game.apply(Action::Drop(cursed));
+        assert_eq!(game.turn, turn, "none of those work or take time");
+        assert_eq!(game.player.weapon().map(|w| w.letter), Some(cursed));
+
+        for _ in 0..100 {
+            game.apply(Action::Wait);
+        }
+        assert!(
+            game.log
+                .iter()
+                .any(|m| m.text == "The curse on your -2 mace fades.")
+        );
+        game.apply(Action::Equip('a'));
+        assert_eq!(game.player.weapon().map(|w| w.letter), Some('a'));
+    }
+
+    #[test]
+    fn enchanting_breaks_a_curse() {
+        let mut game = room_game();
+        let cursed = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Armor(ArmorKind::Chain), -1),
+        );
+        game.apply(Action::Equip(cursed));
+        let scroll = give(&mut game, ItemKind::Scroll(ScrollKind::Enchanting));
+        game.apply(Action::Read {
+            scroll,
+            target: Some(cursed),
+        });
+        let armor = game.player.item(cursed).unwrap();
+        assert_eq!((armor.enchant, armor.curse_turns), (0, 0));
+        game.apply(Action::Equip(cursed));
+        assert!(game.player.armor().is_none(), "it comes off now");
+    }
+
+    #[test]
+    fn wearing_gear_reveals_it_and_intellect_speeds_that_up() {
+        for (intellect, turns) in [(2, 300), (4, 210)] {
+            let mut game = room_game();
+            game.player.intellect = intellect;
+            assert_eq!(game.identify_threshold(), turns);
+            let plate = give_item(
+                &mut game,
+                Item::enchanted(ItemKind::Armor(ArmorKind::Plate), 1),
+            );
+            game.apply(Action::Equip(plate)); // one turn worn
+            for _ in 0..turns - 2 {
+                game.apply(Action::Wait);
+            }
+            assert!(!game.player.item(plate).unwrap().known);
+            game.apply(Action::Wait);
+            assert!(game.player.item(plate).unwrap().known, "Int {intellect}");
+        }
+    }
+
+    #[test]
+    fn carrying_alone_reveals_nothing() {
+        let mut game = room_game();
+        let plate = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Armor(ArmorKind::Plate), 1),
+        );
+        for _ in 0..400 {
+            game.apply(Action::Wait);
+        }
+        assert!(!game.player.item(plate).unwrap().known);
+    }
+
+    #[test]
+    fn rings_teach_their_kind_and_only_two_fit() {
+        let mut game = room_game();
+        let kind = ItemKind::Ring(RingKind::Protection);
+        let rings: Vec<char> = (0..3)
+            .map(|_| give_item(&mut game, Item::enchanted(kind, 1)))
+            .collect();
+        let armor = game.player.defense().armor;
+        game.apply(Action::Equip(rings[0]));
+        assert!(game.lore.knows(kind));
+        assert_eq!(game.player.defense().armor, armor + 1);
+        game.apply(Action::Equip(rings[1]));
+        game.apply(Action::Equip(rings[2]));
+        assert!(!game.player.item(rings[2]).unwrap().equipped);
+        assert!(last_log(&game).contains("two rings"));
+    }
+
+    #[test]
+    fn awareness_widens_sight() {
+        let mut game = room_game();
+        let far = Point::new(2 + 10, 5);
+        assert!(!game.is_visible(far));
+        let ring = give_item(
+            &mut game,
+            Item::enchanted(ItemKind::Ring(RingKind::Awareness), 3),
+        );
+        game.apply(Action::Equip(ring));
+        assert!(game.is_visible(far));
     }
 }

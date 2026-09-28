@@ -11,6 +11,7 @@
 //! - `combat`  — rolling attacks and damage
 //! - `item`    — item kinds, their data, and spawning
 //! - `inventory` — picking up, equipping and using items
+//! - `lore`    — what the player knows about items; item names
 //! - `text`    — small English helpers
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
@@ -34,6 +35,7 @@ mod grid;
 mod input;
 mod inventory;
 mod item;
+mod lore;
 mod map;
 mod menu;
 mod monster;
@@ -187,14 +189,14 @@ fn use_item(
         Verb::Equip => Action::Equip(letter),
         Verb::Drink => Action::Drink(letter),
         Verb::Read => {
-            let mut target = None;
-            if game.scroll_needs_target(letter) {
-                target = choose_item(terminal, game, "Enchant what?", is_gear)?;
-                if target.is_none() {
-                    game.log("Never mind.");
-                    return Ok(());
+            let target = if game.scroll_needs_target(letter) {
+                match choose_read_target(terminal, game, letter)? {
+                    Some(target) => target,
+                    None => return Ok(()),
                 }
-            }
+            } else {
+                None
+            };
             Action::Read {
                 scroll: letter,
                 target,
@@ -203,6 +205,46 @@ fn use_item(
     };
     game.apply(action);
     Ok(())
+}
+
+/// Asks what a scroll of enchanting or identify should work on.
+///
+/// Returns `Some(target)` to go ahead with the reading (the target may
+/// be `None`), or `None` to cancel it. Only a scroll the player already
+/// knows can be cancelled: an unknown one is read the moment it's
+/// chosen, and its magic is wasted if nothing is picked.
+fn choose_read_target(
+    terminal: &mut Terminal,
+    game: &mut Game,
+    scroll: char,
+) -> io::Result<Option<Option<char>>> {
+    let kind = game.player.item(scroll).expect("chosen from the pack").kind;
+    let known = game.lore.knows(kind);
+    let any = game
+        .player
+        .inventory
+        .iter()
+        .any(|i| game.is_read_target(scroll, i));
+    if !any {
+        if known {
+            game.log("There is nothing for that scroll to work on.");
+            return Ok(None);
+        }
+        return Ok(Some(None));
+    }
+    let title = match kind {
+        ItemKind::Scroll(item::ScrollKind::Enchanting) => "Enchant what?",
+        _ => "Identify what?",
+    };
+    let target = choose_item(terminal, game, title, |i| game.is_read_target(scroll, i))?;
+    match (target, known) {
+        (Some(t), _) => Ok(Some(Some(t))),
+        (None, true) => {
+            game.log("Never mind.");
+            Ok(None)
+        }
+        (None, false) => Ok(Some(None)),
+    }
 }
 
 /// The pack screen: pick an item to see its details, then optionally
@@ -225,11 +267,11 @@ fn show_inventory(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
         .item(letter)
         .expect("chosen from the pack")
         .clone();
-    let title = format!("{}) {}", item.letter, item.name());
-    let key = show_box(terminal, game, &title, &ui::item_details(&item))?;
+    let title = format!("{}) {}", item.letter, game.lore.name(&item));
+    let key = show_box(terminal, game, &title, &ui::item_details(&game.lore, &item))?;
     let verb = match (key, item.kind) {
         (Some('d'), _) => Verb::Drop,
-        (Some('e'), ItemKind::Weapon(_) | ItemKind::Armor(_)) => Verb::Equip,
+        (Some('e'), k) if k.is_equipment() => Verb::Equip,
         (Some('q'), ItemKind::Potion(_)) => Verb::Drink,
         (Some('r'), ItemKind::Scroll(_)) => Verb::Read,
         _ => return Ok(()),

@@ -101,7 +101,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 4 | Monsters and turns | Monsters wander, spot you and chase you. Speed differences work ✅ |
 | 5 | Combat and UI | Fight and die. Sidebar, message log, death screen ✅ |
 | 6 | Items and inventory | Pick up, drop, equip weapons and armor, drink potions, read scrolls ✅ |
-| 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify |
+| 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify ✅ |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use |
 | 9 | Hunger and traps | Food clock and hidden traps |
 | 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |

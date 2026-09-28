@@ -9,18 +9,17 @@ use crate::dungeon;
 use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::grid::Grid;
-use crate::item::{self, FloorItem};
+use crate::item::{self, FloorItem, ItemKind, PotionKind};
+use crate::lore::Lore;
 use crate::map::{Map, Tile};
 use crate::monster::{self, Ai, Monster};
 use crate::player::Player;
 use crate::rng::{self, Rng};
 use crate::text::article;
 
-/// How far the player can see, in tiles.
-pub const VIEW_RADIUS: i32 = 8;
-
-/// The player heals 1 health every this many turns.
-pub const REGEN_INTERVAL: u64 = 9;
+/// Turns an unknown item must be worn before revealing its enchantment,
+/// at 2 Intellect. Each point above that cuts it by 15%.
+pub const IDENTIFY_TURNS: u32 = 300;
 
 /// What kind of news a log message is, so the screen can color it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +95,8 @@ pub struct Game {
     visible: Grid<bool>,
     pub monsters: Vec<Monster>,
     pub items: Vec<FloorItem>,
+    /// What the player knows about items, and how unknown ones look.
+    pub lore: Lore,
     /// Randomness for events during play, such as monsters waking.
     /// Kept separate from floor generation so what happens on one
     /// floor never changes the layout of the next.
@@ -115,8 +116,11 @@ impl Game {
             visible: Grid::new(1, 1, false),
             monsters: Vec::new(),
             items: Vec::new(),
+            lore: Lore::new(&mut Rng::new(rng::mix(seed, 0x4C4F_5245))),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
         };
+        // The fighter knows the healing potion they start with.
+        game.lore.learn(ItemKind::Potion(PotionKind::Healing));
         game.enter_floor(1);
         game.log("You descend into the dark.");
         game.update_fov();
@@ -156,7 +160,7 @@ impl Game {
         let visible = &mut self.visible;
         fov::compute(
             self.player.pos,
-            VIEW_RADIUS,
+            self.player.sight_radius(),
             |p| map.tile(p).blocks_sight(),
             |p| visible.set(p, true),
         );
@@ -203,9 +207,7 @@ impl Game {
         if self.death.is_some() {
             return;
         }
-        if self.turn.is_multiple_of(REGEN_INTERVAL) {
-            self.player.hp = (self.player.hp + 1).min(self.player.max_hp);
-        }
+        self.player_upkeep();
         // Monsters need to know what the player can see (and so what
         // can see the player) after the player's move.
         self.update_fov();
@@ -278,6 +280,57 @@ impl Game {
                 Outcome::Free
             }
         }
+    }
+
+    /// Things that happen to the player every turn: healing, curses
+    /// wearing off, and worn gear slowly revealing itself.
+    fn player_upkeep(&mut self) {
+        let p = &mut self.player;
+        p.regen_progress += p.regen_rate();
+        while p.regen_progress >= 100 {
+            p.regen_progress -= 100;
+            p.hp = (p.hp + 1).min(p.max_hp);
+        }
+
+        let threshold = self.identify_threshold();
+        let mut faded = Vec::new();
+        let mut learned = Vec::new();
+        for item in self.player.inventory.iter_mut().filter(|i| i.equipped) {
+            if item.curse_turns > 0 {
+                item.curse_turns -= 1;
+                if item.curse_turns == 0 {
+                    faded.push(item.letter);
+                }
+            }
+            if !item.known {
+                item.worn_turns += 1;
+                if item.worn_turns >= threshold {
+                    item.known = true;
+                    learned.push(item.letter);
+                }
+            }
+        }
+        // Log afterwards: naming needs `self.lore` while the loop above
+        // was borrowing the pack.
+        for letter in faded {
+            let name = self
+                .lore
+                .name(self.player.item(letter).expect("still worn"));
+            self.log_as(&format!("The curse on your {name} fades."), MsgKind::Good);
+        }
+        for letter in learned {
+            let name = self
+                .lore
+                .name(self.player.item(letter).expect("still worn"));
+            self.log(&format!("You've worn it long enough to know it: {name}."));
+        }
+    }
+
+    /// Turns of wearing needed to reveal an item, shorter for clever
+    /// characters.
+    pub fn identify_threshold(&self) -> u32 {
+        let percent = (100 - 15 * (self.player.intellect - 2)).clamp(20, 100);
+        IDENTIFY_TURNS * percent as u32 / 100
     }
 
     /// The player attacks monster `i`. Any attack, hit or miss, alerts
@@ -686,12 +739,13 @@ mod tests {
     fn the_player_slowly_heals() {
         let mut game = corridor_game();
         game.player.hp = 10;
-        for _ in 0..REGEN_INTERVAL * 2 {
+        // 12 healing per turn, 100 per health: 17 turns heal 2.
+        for _ in 0..17 {
             game.apply(Action::Wait);
         }
         assert_eq!(game.player.hp, 12);
         game.player.hp = game.player.max_hp;
-        for _ in 0..REGEN_INTERVAL {
+        for _ in 0..20 {
             game.apply(Action::Wait);
         }
         assert_eq!(game.player.hp, game.player.max_hp, "never above max");
@@ -751,6 +805,7 @@ mod tests {
                 use crate::item::ItemKind as K;
                 assert!(equipped(|k| matches!(k, K::Weapon(_))) <= 1, "seed {seed}");
                 assert!(equipped(|k| matches!(k, K::Armor(_))) <= 1, "seed {seed}");
+                assert!(equipped(|k| matches!(k, K::Ring(_))) <= 2, "seed {seed}");
                 for (i, fi) in game.items.iter().enumerate() {
                     assert!(game.map.tile(fi.pos).is_walkable(), "seed {seed}");
                     assert!(game.items[i + 1..].iter().all(|o| o.pos != fi.pos));

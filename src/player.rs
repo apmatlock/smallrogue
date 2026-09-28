@@ -2,10 +2,20 @@
 
 use crate::combat::{Attack, Defense};
 use crate::geom::Point;
-use crate::item::{ArmorKind, Item, ItemKind, PotionKind, WeaponKind};
+use crate::item::{ArmorKind, Item, ItemKind, PotionKind, RingKind, WeaponKind};
 
 /// One slot per letter, a to z.
 pub const PACK_SIZE: usize = 26;
+
+/// How many rings can be worn at once: one per hand.
+pub const RING_SLOTS: usize = 2;
+
+/// How far the player sees without a ring of awareness.
+pub const BASE_SIGHT: i32 = 8;
+
+/// Healing builds up by this much each turn; every 100 heals 1 health,
+/// so about 1 health every 8 turns.
+pub const BASE_REGEN: i32 = 12;
 
 #[derive(Clone, Debug)]
 pub struct Player {
@@ -21,6 +31,8 @@ pub struct Player {
     /// Carried items, each with its own letter. Equipped items stay in
     /// the pack, marked `equipped`.
     pub inventory: Vec<Item>,
+    /// Healing built up toward the next point of health.
+    pub regen_progress: i32,
 }
 
 impl Player {
@@ -35,6 +47,7 @@ impl Player {
             agility: 3,
             intellect: 2,
             inventory: Vec::new(),
+            regen_progress: 0,
         };
         let kit = [
             ItemKind::Weapon(WeaponKind::Sword),
@@ -44,6 +57,7 @@ impl Player {
         for kind in kit {
             let mut item = Item::new(kind);
             item.equipped = kind.is_equipment();
+            item.known = true; // you know your own gear
             player.add_item(item).expect("an empty pack has room");
         }
         player
@@ -68,6 +82,31 @@ impl Player {
             .find(|i| i.equipped && matches!(i.kind, ItemKind::Armor(_)))
     }
 
+    /// Equipped rings.
+    pub fn rings(&self) -> impl Iterator<Item = &Item> {
+        self.inventory
+            .iter()
+            .filter(|i| i.equipped && matches!(i.kind, ItemKind::Ring(_)))
+    }
+
+    /// The total enchantment of worn rings of one kind. Two +1 rings of
+    /// accuracy add up to +2.
+    pub fn ring_bonus(&self, kind: RingKind) -> i32 {
+        self.rings()
+            .filter(|i| i.kind == ItemKind::Ring(kind))
+            .map(|i| i.enchant)
+            .sum()
+    }
+
+    pub fn sight_radius(&self) -> i32 {
+        (BASE_SIGHT + self.ring_bonus(RingKind::Awareness)).clamp(3, 14)
+    }
+
+    /// Healing gained per turn, out of 100 per point of health.
+    pub fn regen_rate(&self) -> i32 {
+        (BASE_REGEN + 6 * self.ring_bonus(RingKind::Regeneration)).max(2)
+    }
+
     pub fn attack(&self) -> Attack {
         let bonus = self.strength_bonus();
         let (damage, accuracy, enchant) = match self.weapon() {
@@ -83,13 +122,14 @@ impl Player {
         let min = (damage.0 + bonus + enchant).max(1);
         let max = (damage.1 + bonus + enchant).max(min);
         Attack {
-            accuracy: 1 + self.agility + accuracy + enchant,
+            accuracy: 1 + self.agility + accuracy + enchant + self.ring_bonus(RingKind::Accuracy),
             damage: (min, max),
         }
     }
 
     pub fn defense(&self) -> Defense {
-        match self.armor() {
+        let protection = self.ring_bonus(RingKind::Protection);
+        let base = match self.armor() {
             Some(Item {
                 kind: ItemKind::Armor(a),
                 enchant,
@@ -102,6 +142,10 @@ impl Player {
                 dodge: self.agility,
                 armor: 0,
             },
+        };
+        Defense {
+            armor: (base.armor + protection).max(0),
+            ..base
         }
     }
 
@@ -168,8 +212,11 @@ mod tests {
     #[test]
     fn fighter_starts_equipped() {
         let p = Player::fighter(Point::default());
-        assert_eq!(p.weapon().map(Item::name), Some("sword".to_string()));
-        assert_eq!(p.armor().map(Item::name), Some("leather armor".to_string()));
+        let kind = |i: Option<&Item>| i.map(|i| (i.kind, i.enchant, i.known));
+        let sword = ItemKind::Weapon(WeaponKind::Sword);
+        let leather = ItemKind::Armor(ArmorKind::Leather);
+        assert_eq!(kind(p.weapon()), Some((sword, 0, true)));
+        assert_eq!(kind(p.armor()), Some((leather, 0, true)));
         // Same numbers the built-in sword and armor had before items.
         assert_eq!(p.attack().damage, (2, 6));
         assert_eq!(p.defense().armor, 1);
@@ -220,6 +267,37 @@ mod tests {
         p.item_mut(letter).unwrap().equipped = true;
         assert_eq!(p.defense().armor, 5);
         assert_eq!(p.defense().dodge, 0);
+    }
+
+    #[test]
+    fn rings_add_up() {
+        let mut p = Player::fighter(Point::default());
+        for enchant in [2, 1] {
+            let mut ring = Item::enchanted(ItemKind::Ring(RingKind::Accuracy), enchant);
+            ring.equipped = true;
+            p.add_item(ring).unwrap();
+        }
+        assert_eq!(p.ring_bonus(RingKind::Accuracy), 3);
+        assert_eq!(p.attack().accuracy, 1 + 3 + 3);
+
+        let mut ring = Item::enchanted(ItemKind::Ring(RingKind::Awareness), 2);
+        ring.equipped = true;
+        p.add_item(ring).unwrap();
+        assert_eq!(p.sight_radius(), BASE_SIGHT + 2);
+    }
+
+    #[test]
+    fn protection_and_regeneration_rings() {
+        let mut p = Player::fighter(Point::default());
+        let base_armor = p.defense().armor;
+        let base_regen = p.regen_rate();
+        for kind in [RingKind::Protection, RingKind::Regeneration] {
+            let mut ring = Item::enchanted(ItemKind::Ring(kind), 2);
+            ring.equipped = true;
+            p.add_item(ring).unwrap();
+        }
+        assert_eq!(p.defense().armor, base_armor + 2);
+        assert_eq!(p.regen_rate(), base_regen + 12);
     }
 
     #[test]
