@@ -33,7 +33,9 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 | Combat | Roll to hit, then roll damage reduced by armor |
 | Hunger | Yes, light pressure — enough to stop endless resting, rarely fatal for careful players |
 | Magic | Later, with a mage background. Until then Intellect helps identify items |
-| Identification | Potions, scrolls, wands, rings and weapon/armor enchantments start unknown |
+| Identification | Potions, scrolls, rings and weapon/armor/ring enchantments start unknown. Wands wait for magic |
+| Rings | Two worn at once. Regeneration, accuracy, protection, awareness |
+| Curses | Soft: negative gear can't be removed for 50 turns per point below zero. Enchanting breaks a curse |
 | Terrain | Floor, wall, stairs down, doors, traps |
 | Vision | Line-of-sight field of view, explored areas remembered in dim colors |
 | Visuals | Colored ASCII. Drawing is kept separate from game logic so tiles could be added |
@@ -62,10 +64,12 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 - **Seeds.** Every floor comes from a seeded random generator, so a run can be replayed exactly for debugging.
 
 ### Items
-- **Weapons and armor.** Always visibly a sword or chain mail, but enchantments are hidden until worn or identified.
+- **Weapons and armor.** Always visibly a sword or chain mail, but enchantments are hidden until worn long enough or identified. Enchantments roll from -3 to +2; negative rolls are rare (about 6% of gear).
 - **Consumables.** Potions and scrolls get random appearances each run, such as "a murky potion". Using one identifies its kind.
-- **Magic gear.** Wands and rings start unknown.
-- **Identification.** By use, by scroll of identify, or gradually by carrying an item, which is faster with high Intellect.
+- **Rings.** Up to two worn at once. Regeneration heals faster, accuracy adds to hit chance, protection adds armor, and awareness widens sight (and will reveal traps once they exist). A ring's enchantment sets its strength. Rings start unknown.
+- **Wands.** Deferred until magic arrives with the mage background.
+- **Soft curses.** Equipping negative gear locks it in place for 50 turns per point below zero (-1: 50, -2: 100, -3: 150). Reading enchanting on it breaks the curse at once.
+- **Identification.** Drinking or reading an unknown kind identifies it for the rest of the run. A new scroll of identify reveals one chosen item. Equipped weapons, armor and rings reveal their enchantment after about 300 turns worn, faster with higher Intellect. Carrying alone does nothing.
 
 ### Monsters
 - Defined in data tables: symbol, color, health, attack, defense, speed, zone, behavior.
@@ -97,7 +101,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 4 | Monsters and turns | Monsters wander, spot you and chase you. Speed differences work ✅ |
 | 5 | Combat and UI | Fight and die. Sidebar, message log, death screen ✅ |
 | 6 | Items and inventory | Pick up, drop, equip weapons and armor, drink potions, read scrolls ✅ |
-| 7 | Identification | Unknown potions, scrolls, wands, rings and enchantments |
+| 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use |
 | 9 | Hunger and traps | Food clock and hidden traps |
 | 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |
@@ -106,7 +110,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 ## Later, after v1
 
 - Save on quit
-- More backgrounds: rogue, mage (brings magic and spells), ranger
+- More backgrounds: rogue, mage (brings magic, spells and wands), ranger
 - Species
 - More zones, monsters, items and themed rooms
 - A signature mechanic, once play shows what is fun
