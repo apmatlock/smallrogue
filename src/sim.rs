@@ -93,15 +93,30 @@ pub fn simulate(runs: u64, first_seed: u64, csv_path: &Path) -> io::Result<()> {
     let started = Instant::now();
     let mut results = Vec::new();
     for seed in (0..runs).map(|i| first_seed + i) {
-        results.push(play(seed, MAX_TURNS));
-        // A progress line that overwrites itself.
-        eprint!("\rPlayed {}/{runs}", results.len());
+        let r = play(seed, MAX_TURNS);
+        // One line per finished run, so progress can be followed with
+        // `tail -f` when stderr goes to a file.
+        eprintln!("{}/{runs}  {}", results.len() + 1, run_line(&r));
+        results.push(r);
     }
-    eprintln!();
     std::fs::write(csv_path, to_csv(&results))?;
     print!("{}", summary(&results, started.elapsed().as_secs_f64()));
     println!("CSV with one row per run: {}", csv_path.display());
     Ok(())
+}
+
+/// A short account of one run, e.g. "seed 7: depth 3, turn 300, killed by a goblin".
+pub fn run_line(r: &RunResult) -> String {
+    let end = match r.ending {
+        Ending::Died => format!("killed by {}", r.killer),
+        Ending::TurnLimit => "hit the turn limit".to_string(),
+        Ending::Stuck => "stuck".to_string(),
+        Ending::Stalled => "stalled".to_string(),
+    };
+    format!(
+        "seed {}: depth {}, turn {}, level {}, {end}",
+        r.seed, r.depth, r.turns, r.level
+    )
 }
 
 pub fn to_csv(results: &[RunResult]) -> String {
@@ -190,6 +205,18 @@ mod tests {
             ending,
             killer: killer.to_string(),
         }
+    }
+
+    #[test]
+    fn a_run_line_says_how_it_ended() {
+        assert_eq!(
+            run_line(&result(7, 3, Ending::Died, "a goblin")),
+            "seed 7: depth 3, turn 300, level 3, killed by a goblin"
+        );
+        assert_eq!(
+            run_line(&result(8, 2, Ending::Stalled, "")),
+            "seed 8: depth 2, turn 200, level 2, stalled"
+        );
     }
 
     #[test]

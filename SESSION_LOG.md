@@ -2,16 +2,31 @@
 
 Where the project stands, so work can pick up where it left off. The design decisions and milestone plan live in [DESIGN.md](DESIGN.md); this file is the running status.
 
-## Where we left off — 2026-09-29
+## Where we left off — 2026-09-29 (third session)
 
-Last commit: `f309b1c` "Bot memory with an Escape plan". Everything is committed and pushed to `main`. 155 tests pass; clippy and rustfmt are clean.
+Last commit: the `--simulate` per-run output. Working on **bot memory: Fetch** next.
 
-### Next step, to choose from
+### Hold plan: tried and dropped
 
-1. **Bot memory: Hold.** Fight from corridors instead of charging into groups. Codex rated this above Escape for impact. Reuses the new `BotMemory`: add a `Purpose::Hold`, pick a nearby corridor tile when a group is hunting, walk there, then wait and fight. Measure on seeds 1-100, confirm on fresh seeds 1001-1200.
-2. **Bot memory: Fetch.** Short, budgeted detours for food, healing or clear gear upgrades before diving.
-3. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
-4. **Milestone 12: polish and balance.** High scores, help, final tuning.
+Hold had the bot fall back to a narrow spot (a corridor tile within 6 steps it could reach before any hunter) when two or more monsters were hunting, then wait and fight them one at a time. It looked good on the tuning seeds and was a wash on fresh ones, even after tuning (a 15-turn budget, and no holding when hungry with no food):
+
+| Fresh seeds 1001-1200 | Baseline | First Hold | Tuned Hold |
+|---|---|---|---|
+| Median depth | 15 | 15 | 15 |
+| Average depth | 23.3 | 22.6 | 23.6 |
+| Deaths | 173 | 170 | 169 |
+| Starvation deaths | 5 | 12 | 9 |
+| Same seed vs baseline | | 77 deeper, 74 shallower | 78 deeper, 69 shallower |
+
+On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another case of tuning-seed gains that don't carry over. The code was not committed; the patch is in `target/hold.patch` (untracked).
+
+`--simulate` now prints one line per finished run (seed, depth, turn, level, how it ended) to stderr, so `2>run.log` plus `tail -f run.log` shows progress.
+
+### Next step
+
+1. **Bot memory: Fetch.** Short, budgeted detours for food, healing or clear gear upgrades before diving. Starvation deaths are a target.
+2. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
+3. **Milestone 12: polish and balance.** High scores, help, final tuning.
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
