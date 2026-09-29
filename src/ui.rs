@@ -468,7 +468,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
             frame,
             (x + 2, y, width - 2),
             &format!("{:<8}{state}", species.name),
-            (m.hp, species.max_hp),
+            (m.hp, m.max_hp()),
             TEXT,
         );
     }

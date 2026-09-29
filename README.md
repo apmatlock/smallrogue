@@ -91,6 +91,7 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 | `'` | Open door |
 | `>` | Stairs down |
 | `r` `j` `g` `z` | Rat, jackal, goblin, zombie |
+| `o` `G` `T` `W` | Orc, ghoul, troll, wraith: deeper and deadlier |
 | `)` | Weapon |
 | `[` | Armor |
 | `!` | Potion |
@@ -104,6 +105,8 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 ## How it plays
 
 **Monsters** sleep, wander, or hunt you. A monster can see you exactly when you can see it. Hunters that lose sight of you go to where they last saw you. Jackals are fast and zombies are slow. Rats and jackals can't open doors, so closing one can save you.
+
+**The dungeon gets harder the deeper you go.** New monsters arrive at set depths (orcs at 5, ghouls at 9, trolls at 13, wraiths at 16) and are most common for a few floors after they first appear. Every monster also grows stronger with depth: its health compounds by 6% per floor, and it gains damage every 2 floors, accuracy every 3 and dodge every 4. Deeper floors hold more monsters, and fewer of them are asleep.
 
 **Combat** rolls to hit by comparing the attacker's accuracy with the defender's dodge, then rolls damage and subtracts armor. A hit always does at least 1 damage. You slowly regain health over time. When you die, a death screen shows what killed you, how deep you got, and the seed.
 

@@ -216,7 +216,7 @@ impl Watch {
 /// A monster's health as the sidebar shows it: a bar 18 cells wide,
 /// not the exact number, which the player never sees.
 fn health_bar(m: &Monster) -> i32 {
-    let max = m.species().max_hp.max(1);
+    let max = m.max_hp().max(1);
     (m.hp.max(0) * 18 + max - 1) / max
 }
 

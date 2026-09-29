@@ -107,6 +107,16 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |
 | 11 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
 
+### Moved ahead of milestones 9 and 10: monster scaling
+
+Built right after milestone 8, at the user's request, so balance runs had a real difficulty curve to measure. Themed zones stay in milestone 10.
+
+- **New monsters by depth:** orc (5), ghoul (9), troll (13), wraith (16, fast and evasive). Kinds that arrived in the last 6 floors are three times as common as older ones.
+- **Stat scaling:** health compounds 6% per floor; +1 damage per 2 floors, +1 accuracy per 3, +1 dodge per 4; experience grows 8% of base per floor (not compounding, so the character can't simply outgrow the dungeon).
+- **Alertness:** 50% of monsters start asleep on depth 1, 3% fewer per floor, down to 5%. Monsters per floor: 2 plus depth, up to 16.
+- **Target:** the bot (a careful beginner) should die around depth 15-20. Tuned with 200-game runs: median final depth 15, median death depth 13, deaths spread from 3 to 19. About a third of runs still snowball past the turn cap because resting is free; hunger in milestone 9 is meant to close that gap, after which the numbers should be re-checked.
+- All knobs are constants at the top of `src/monster.rs`.
+
 ### Added along the way: bot and auto modes
 
 Built between milestones 7 and 8, at the user's request.

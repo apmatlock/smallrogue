@@ -362,7 +362,7 @@ impl Game {
             Some(damage) => {
                 self.monsters[i].hp -= damage;
                 if self.monsters[i].hp <= 0 {
-                    let xp = self.monsters.remove(i).species().xp;
+                    let xp = self.monsters.remove(i).xp();
                     self.log_as(&format!("You kill the {name}!"), MsgKind::Good);
                     self.gain_xp(xp);
                     return;
