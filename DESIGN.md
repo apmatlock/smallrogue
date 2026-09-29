@@ -60,7 +60,7 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 
 ### Dungeon
 - **Generation.** Place non-overlapping rectangular rooms, connect them with corridors, add doors at room entrances, place stairs, monsters, items and traps.
-- **Zones (v1 has three).** For example: Crypts (floors 1–4), Flooded Halls (5–8), Deep Warrens (9–12). Each zone sets floor size, wall and floor colors, monster pool, item weights and themed rooms.
+- **Zones (v1 has three).** Crypts (floors 1–6), Flooded Halls (7–12), Deep Warrens (13–18); see the milestone 11 plan. Each zone sets floor size, wall and floor colors, monster pool, item weights and themed rooms.
 - **Cycling.** After the last zone, the cycle restarts with a loop number. Each loop increases monster health, damage and accuracy.
 - **Themed rooms.** Special rooms with their own layout and contents, such as an ossuary, a treasure vault or a guard post.
 - **Seeds.** Every floor comes from a seeded random generator, so a run can be replayed exactly for debugging.
@@ -108,7 +108,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 9 | Hunger and traps | Food clock and hidden traps ✅ |
 | 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs ✅ |
 | 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where |
-| 12 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
+| 12 | Polish and balance | Help screen, tuning so runs last 10–20 minutes (high scores done early) |
 
 ### Milestone 10 plan: monster abilities
 
@@ -170,6 +170,53 @@ The first purpose is **Escape**: when at half health or less and nothing hunting
 - On 200 fresh seeds, escaping when hurt was roughly neutral (31 runs deeper, 29 shallower; median 14 to 15; average 23.1 to 23.3).
 - A second trigger, walking away from slow monsters, looked good on the 100 tuning seeds but lost clearly on fresh seeds (47 deeper, 78 shallower, 11 more deaths), so it was removed. Skipping those fights costs experience the bot needs later.
 - No stalls in any run. The same memory is ready for the Hold (fight from corridors) and Fetch (short supply detours) plans.
+
+### Bot memory: Hold and Fetch
+
+- **Hold** (fall back to a corridor when a group hunts, fight them one at a time) looked good on tuning seeds but was a wash on fresh ones, even after tuning, and was dropped.
+- **Fetch** (before heading down, go back for a seen item within 15 steps, on a turn budget, pausing for fights and rest) was kept: on fresh seeds the median depth rose from 15 to 19 and the average from 23.3 to 28.9, with 120 runs deeper and 58 shallower. About a third of runs now survive past depth 40 to the turn limit, so the late game needs to get harder; milestone 11's loop scaling is the main lever.
+
+### Added early: run stats and high scores
+
+The death screen shows the run in numbers (kills, most slain, toughest foe, accuracy, damage dealt and taken, stairs, trapdoors, items used) and a top-10 high score list saved between runs, ranked by depth then fewer turns. Runs the bot played aren't recorded.
+
+### Milestone 11 plan: themed zones
+
+Decided with the user: 6-floor zones, and zones make their own monsters more likely rather than excluding others.
+
+**Zones and cycle.** Three zones of 6 floors make an 18-floor cycle, so a typical run (target: death around depth 15–20) sees all three, and good runs reach loop 2.
+
+| Zone | Loop 1 | Loop 2 | Look |
+|---|---|---|---|
+| Crypts | 1–6 | 19–24 | Grey-violet stone; small rooms, many doors, few loops |
+| Flooded Halls | 7–12 | 25–30 | Blue-green; big open rooms, shallow water, many loops |
+| Deep Warrens | 13–18 | 31–36 | Ochre and brown; a larger map (about 100×40), many small rooms, long corridors |
+
+Entering a zone logs a message and the sidebar shows the zone's name; from loop 2 on, the message warns that it is more dangerous now.
+
+**Monsters.** Each kind gets a home zone; home kinds are 4 times as likely there. Unlock depths stay, so each loop brings a zone's deeper monsters (the second crypts have wraiths, vampires and demons; the second warrens, dragons).
+
+| Zone | Home monsters (unlock depth) |
+|---|---|
+| Everywhere | rat 1, newt 1, jackal 1, giant bat 2 |
+| Crypts | zombie 2, skeleton 3 (was 6), draugr 5 (was 7), ghoul 9, gargoyle 11, stone golem 14, wraith 16, vampire 18, demon 25 |
+| Flooded Halls | giant ant 4, harpy 5, acid mound 6, giant spider 8, pink jelly 10, troll 13, frost giant 19 |
+| Deep Warrens | kobold 1, goblin 2, redcap 3, monkey 3, orc 5, hobgoblin 6, ogre 10, owlbear 10, bulette 12, oni 15, dragon 22 |
+
+**Items.** Crypts favor scrolls, the flooded halls potions, the warrens weapons, armor and food.
+
+**Themed rooms.** About half of all floors get one (never the start room): a crypt **tomb** (sleeping undead guarding 1–2 items), a flooded **cistern** (mostly shallow water, jellies or mounds, an item on a dry spot), a warrens **den** (a sleeping pack on 2–3 stolen items) or **larder** (food). Shallow water is a new walkable tile, decoration only for now.
+
+**Loop scaling.** A new knob adds monster health and damage per loop on top of depth scaling, starting at zero and tuned with simulations: the main fix for runs that never die.
+
+**Steps**, each measured on seeds 1–100 and confirmed on fresh seeds 1001–1200:
+1. `src/zone.rs`: the zone table and depth-to-zone-and-loop mapping; floor size, colors, sidebar name and entry message. Measured alone, since floor sizes shift balance.
+2. Zone monster weights, the lowered crypt unlock depths, and zone item weights.
+3. Water tile and themed rooms.
+4. Loop scaling, tuned toward the depth 15–20 target with fewer runs reaching the turn limit.
+5. Codex review, then update this document and the session log.
+
+Later ideas: monster name prefixes in later loops ("elder zombie"), water that slows movement.
 
 ## Later, after v1
 

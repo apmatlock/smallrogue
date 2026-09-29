@@ -23,6 +23,7 @@ use crate::player::{FOOD_MAX, Hunger};
 use crate::scores::Score;
 use crate::skills::{self, Skill};
 use crate::text::article;
+use crate::zone::Zone;
 
 const SIDEBAR_WIDTH: i32 = 22;
 const LOG_HEIGHT: i32 = 4;
@@ -30,10 +31,6 @@ pub const MIN_WIDTH: u16 = 50;
 pub const MIN_HEIGHT: u16 = 16;
 
 // A muted palette to suit the grim tone.
-const WALL_FG: Rgb = Rgb(120, 110, 100);
-const WALL_BG: Rgb = Rgb(28, 26, 24);
-const FLOOR_FG: Rgb = Rgb(105, 98, 88);
-const DOOR_FG: Rgb = Rgb(160, 110, 60);
 const STAIRS_FG: Rgb = Rgb(230, 200, 90);
 const PLAYER_FG: Rgb = Rgb(240, 230, 200);
 const TEXT: Rgb = Rgb(190, 190, 190);
@@ -271,6 +268,7 @@ fn camera_origin(player: i32, map_len: i32, view_len: i32) -> i32 {
 }
 
 fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
+    let zone = game.place().zone();
     let origin = Point::new(
         camera_origin(game.player.pos.x, game.map.width(), view_w),
         camera_origin(game.player.pos.y, game.map.height(), view_h),
@@ -282,9 +280,9 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
             // Three cases: in sight (full color), remembered (cold and
             // dim), or never seen (left blank).
             if game.is_visible(p) {
-                frame.set(sx, sy, tile_cell(game.map.tile(p)));
+                frame.set(sx, sy, tile_cell(game.map.tile(p), zone));
             } else if game.map.is_revealed(p) {
-                let cell = tile_cell(game.map.tile(p));
+                let cell = tile_cell(game.map.tile(p), zone);
                 frame.set(
                     sx,
                     sy,
@@ -381,13 +379,13 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
     );
 }
 
-/// How each kind of tile looks.
-fn tile_cell(tile: Tile) -> Cell {
+/// How each kind of tile looks in a zone.
+fn tile_cell(tile: Tile, zone: &Zone) -> Cell {
     let (ch, fg, bg) = match tile {
-        Tile::Wall => ('#', WALL_FG, WALL_BG),
-        Tile::Floor => ('.', FLOOR_FG, BLACK),
-        Tile::DoorClosed => ('+', DOOR_FG, BLACK),
-        Tile::DoorOpen => ('\'', DOOR_FG, BLACK),
+        Tile::Wall => ('#', zone.wall_fg, zone.wall_bg),
+        Tile::Floor => ('.', zone.floor_fg, BLACK),
+        Tile::DoorClosed => ('+', zone.door_fg, BLACK),
+        Tile::DoorOpen => ('\'', zone.door_fg, BLACK),
         Tile::StairsDown => ('>', STAIRS_FG, BLACK),
     };
     Cell { ch, fg, bg }
@@ -412,6 +410,8 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let width = SIDEBAR_WIDTH - 2;
     let p = &game.player;
     frame.print(x, 0, "SMALLROGUE", TITLE);
+    let place = game.place();
+    frame.print(x, 1, &place.title(), place.zone().wall_fg);
     let health = format!("Health {}/{}", p.hp, p.max_hp);
     draw_bar(
         frame,
@@ -832,7 +832,8 @@ mod tests {
         game.log("newest");
         let frame = draw(&game, 80, 24);
         assert!(row_text(&frame, 23).contains("newest"));
-        assert!(row_text(&frame, 22).contains("You descend"));
+        assert!(row_text(&frame, 22).contains("You enter the Crypts."));
+        assert!(row_text(&frame, 21).contains("You descend"));
     }
 
     /// Finds a tile the player can see that lies outside the map area

@@ -19,6 +19,7 @@ use crate::skills::{self, Attribute, Skill};
 use crate::stats::{Kill, Stats};
 use crate::text::article;
 use crate::trap::{self, Trap};
+use crate::zone::Place;
 
 /// A starving player loses 1 health every this many turns.
 pub const STARVING_DAMAGE_EVERY: u64 = 5;
@@ -148,6 +149,7 @@ impl Game {
         game.lore.learn(ItemKind::Potion(PotionKind::Healing));
         game.enter_floor(1);
         game.log("You descend into the dark.");
+        game.welcome_to_zone();
         game.update_fov();
         game
     }
@@ -158,12 +160,24 @@ impl Game {
         // depth). Floor 5 of a seed is then always the same, no matter
         // what random events happened on floors 1 to 4.
         let mut floor_rng = Rng::new(rng::mix(self.seed, depth as u64));
-        let level = dungeon::generate(&mut floor_rng, &dungeon::STANDARD);
+        let level = dungeon::generate(&mut floor_rng, &Place::at_depth(depth).zone().floor);
         self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth);
         self.items = item::spawn_for_floor(&mut floor_rng, &level);
         self.traps = trap::spawn_for_floor(&mut floor_rng, &level, &self.items, depth);
         self.place_on_map(level.map, level.start);
         self.depth = depth;
+    }
+
+    /// Where the current floor falls in the cycle of zones.
+    pub fn place(&self) -> Place {
+        Place::at_depth(self.depth)
+    }
+
+    /// Announces a zone on its first floor.
+    pub(crate) fn welcome_to_zone(&mut self) {
+        if let Some(text) = self.place().welcome() {
+            self.log_as(&text, MsgKind::Good);
+        }
     }
 
     /// Swaps in a new map with the player at `at`, resetting what is
@@ -310,6 +324,7 @@ impl Game {
         self.enter_floor(self.depth + 1);
         self.stats.stairs_taken += 1;
         self.log(&format!("You descend to depth {}.", self.depth));
+        self.welcome_to_zone();
         Outcome::NewFloor
     }
 
@@ -672,7 +687,7 @@ mod tests {
         game.apply(Action::Descend);
         assert_eq!(game.depth, 2);
         assert_eq!(game.stats.stairs_taken, 1, "only the real descent counts");
-        assert_eq!(game.map.width(), dungeon::STANDARD.width);
+        assert_eq!(game.map.width(), Place::at_depth(2).zone().floor.width);
         assert!(game.map.tile(game.player.pos).is_walkable());
     }
 

@@ -176,6 +176,7 @@ impl Game {
                 self.enter_floor(self.depth + 1);
                 self.stats.trapdoor_falls += 1;
                 self.log(&format!("You land on depth {}.", self.depth));
+                self.welcome_to_zone();
                 return Some(Outcome::NewFloor);
             }
         }

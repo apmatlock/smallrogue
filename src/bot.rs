@@ -869,6 +869,9 @@ mod tests {
     fn the_bot_heads_down_as_soon_as_it_knows_the_way() {
         let mut game = Game::new(3);
         game.monsters.clear();
+        // Items nearby would be fetched first, which is fine but not
+        // what this test is about.
+        game.items.clear();
         let stairs = game
             .map
             .points()

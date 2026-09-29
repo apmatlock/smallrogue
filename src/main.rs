@@ -7,6 +7,7 @@
 //! - `map`     — the tile layout and the player's memory of it
 //! - `fov`     — field of view (what can be seen from where)
 //! - `dungeon` — random floor generation
+//! - `zone`    — themed stretches of floors, and the loop through them
 //! - `player`  — the player character's stats
 //! - `combat`  — rolling attacks and damage
 //! - `skills`  — skills that improve by use; levels from experience
@@ -62,6 +63,7 @@ mod term;
 mod text;
 mod trap;
 mod ui;
+mod zone;
 
 use std::io;
 use std::process::ExitCode;

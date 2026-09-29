@@ -15,8 +15,8 @@ use crate::geom::{Point, Rect};
 use crate::map::{Map, Tile};
 use crate::rng::Rng;
 
-/// Settings that shape a floor. Zones (milestone 11) will each supply
-/// their own, which is how floor size will vary by zone.
+/// Settings that shape a floor. Each zone supplies its own (see
+/// `zone::ZONES`); `STANDARD` is a middle-of-the-road set for tests.
 pub struct FloorParams {
     pub width: i32,
     pub height: i32,
@@ -29,6 +29,7 @@ pub struct FloorParams {
     pub door_percent: i32,
 }
 
+#[cfg(test)]
 pub const STANDARD: FloorParams = FloorParams {
     width: 80,
     height: 36,
