@@ -57,13 +57,19 @@ pub fn next_action(game: &Game) -> Action {
     // monsters are and how deep they are.
     let danger: i32 = visible
         .iter()
-        .filter(|m| {
+        .map(|m| {
             let d = m.pos - pos;
             let reach = d.x.abs().max(d.y.abs());
-            reach <= 1
-                || (reach == 2 && matches!(m.ai, Ai::Hunting { .. }) && m.species().speed > 100)
+            // Actions it may get this turn: 2 for anything faster than
+            // the player. One is spent closing in from two tiles away.
+            let actions = (m.species().speed + 99) / 100;
+            let attacks = match reach {
+                1 => actions,
+                2 if matches!(m.ai, Ai::Hunting { .. }) => actions - 1,
+                _ => 0,
+            };
+            attacks * m.attack().damage.1
         })
-        .map(|m| m.attack().damage.1)
         .sum();
     let hp_now = game.player.hp;
     let could_die = danger > 0 && hp_now <= danger;
@@ -74,7 +80,9 @@ pub fn next_action(game: &Game) -> Action {
         let teleport = known_item(game, ItemKind::Scroll(ScrollKind::Teleportation));
         // Surrounded, or a healing potion won't cover the worst case:
         // leave instead of prolonging a fight that can't be won.
-        let healing_falls_short = hp_now + HEALING <= danger;
+        // Healing can't go past full health.
+        let healed = (hp_now + HEALING).min(game.player.max_hp);
+        let healing_falls_short = healed <= danger;
         if (adjacent.len() >= 2 || (could_die && healing_falls_short))
             && let Some(letter) = teleport
         {
@@ -793,6 +801,35 @@ mod tests {
             next_action(&game),
             Action::Read {
                 scroll: letter,
+                target: None
+            }
+        );
+    }
+
+    #[test]
+    fn fast_monsters_count_twice_and_healing_is_capped() {
+        use crate::item::Item;
+        use crate::monster::Kind;
+        let mut game = quiet_room();
+        let teleport = ItemKind::Scroll(ScrollKind::Teleportation);
+        game.lore.learn(teleport);
+        let scroll = game.player.add_item(Item::new(teleport)).unwrap();
+        game.lore.learn(ItemKind::Potion(PotionKind::Healing)); // 'c'
+
+        // One giant ant next to us: speed 150, so two bites of up to 5.
+        // At 9 health one bite can't kill but two can, and a healing
+        // potion capped at full health (10 here) wouldn't cover it.
+        let ant = hunter_at(&game, Kind::GiantAnt, Point::new(3, 5));
+        let worst = ant.attack().damage.1;
+        game.monsters.push(ant);
+        game.update_fov();
+        game.player.max_hp = 2 * worst;
+        game.player.hp = 2 * worst - 1;
+        assert!(game.player.hp > worst, "one bite alone can't kill");
+        assert_eq!(
+            next_action(&game),
+            Action::Read {
+                scroll,
                 target: None
             }
         );
