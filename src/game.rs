@@ -239,9 +239,14 @@ impl Game {
             return;
         }
         self.player_upkeep();
+        if self.death.is_some() {
+            return;
+        }
         // Monsters need to know what the player can see (and so what
         // can see the player) after the player's move.
         self.update_fov();
+        // Spot traps with this turn's view, not last turn's.
+        self.search_for_traps();
         if outcome == Outcome::TookTurn {
             self.monsters_act();
             // Monsters may have opened doors, changing the view.
@@ -333,7 +338,6 @@ impl Game {
         if self.death.is_some() {
             return;
         }
-        self.search_for_traps();
         let p = &mut self.player;
         // A body weak from hunger doesn't heal.
         if p.hunger() < Hunger::Weak {

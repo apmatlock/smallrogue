@@ -296,6 +296,33 @@ mod tests {
         assert!(game.known_trap_at(spot), "15% a turn for 60 turns");
     }
 
+    /// A trap that just came into view can be spotted on the same turn,
+    /// and one hidden behind a wall can't.
+    #[test]
+    fn trap_spotting_uses_the_current_view() {
+        // Player at (1,1) in a corridor; a closed door at (2,1) hides the
+        // trap at (3,1). Opening the door brings it into view.
+        let mut game = Game::new(1);
+        let mut map = Map::new_filled(7, 3);
+        map.carve_h_corridor(1, 5, 1);
+        map.set_tile(Point::new(2, 1), crate::map::Tile::DoorClosed);
+        game.place_on_map(map, Point::new(1, 1));
+        game.monsters.clear();
+        game.items.clear();
+        game.traps.clear();
+        game.update_fov();
+        let spot = Point::new(3, 1);
+        put_trap(&mut game, spot, TrapKind::Dart, false);
+        assert!(!game.is_visible(spot));
+        // Standing next to the door, the trap is 2 tiles away: out of
+        // spotting range, so it only matters that nothing leaks through
+        // the closed door.
+        for _ in 0..30 {
+            game.apply(Action::Wait);
+        }
+        assert!(!game.known_trap_at(spot), "spotted through a closed door");
+    }
+
     #[test]
     fn magic_mapping_reveals_traps() {
         let mut game = room_game();

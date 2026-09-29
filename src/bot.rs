@@ -192,6 +192,11 @@ impl Watch {
         if game.death.is_some() {
             return Some(String::new());
         }
+        // The only way on crosses a known trap. The game has just asked
+        // for confirmation; that choice belongs to the player.
+        if game.trap_warning.is_some() {
+            return Some(String::new());
+        }
         if game.player.hp < self.hp {
             return Some("You are hurt!".to_string());
         }
@@ -666,6 +671,15 @@ mod tests {
         if let Some(Action::Move(new_step)) = explore_step(&game) {
             assert_ne!(game.player.pos + new_step, spot);
         }
+    }
+
+    #[test]
+    fn auto_moves_stop_at_a_trap_warning() {
+        let mut game = Game::new(1);
+        game.monsters.clear();
+        let watch = Watch::new(&game);
+        game.trap_warning = Some(game.player.pos + Point::new(1, 0));
+        assert!(watch.reason_to_stop(&game).is_some());
     }
 
     #[test]
