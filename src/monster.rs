@@ -8,6 +8,7 @@ use crate::combat::{Attack, Defense};
 use crate::dungeon::{self, Level};
 use crate::frame::Rgb;
 use crate::geom::Point;
+use crate::item::Item;
 use crate::rng::Rng;
 
 /// Energy a creature spends to take one action. Each turn a monster
@@ -72,6 +73,27 @@ pub enum Kind {
     Bulette,
     Oni,
     FrostGiant,
+    Monkey,
+    AcidMound,
+    PinkJelly,
+}
+
+/// Special powers that change how a fight plays out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ability {
+    /// Heals a little every turn.
+    Regenerates,
+    /// Each hit permanently lowers the player's maximum health.
+    DrainsMaxHealth,
+    /// Each hit heals it by the damage it deals.
+    DrinksBlood,
+    /// Its hit steals an unequipped item instead of hurting; it then
+    /// runs away with it.
+    StealsAndFlees,
+    /// Its hits may eat away the enchantment of the player's armor.
+    CorrodesArmor,
+    /// Splits in two when hit without dying.
+    Splits,
 }
 
 pub struct Species {
@@ -94,10 +116,19 @@ pub struct Species {
     pub verb: &'static str,
     /// Experience for killing one.
     pub xp: u32,
+    pub abilities: &'static [Ability],
+    /// How many appear together: (fewest, most). (1, 1) for loners.
+    pub pack: (u32, u32),
+}
+
+impl Species {
+    pub fn has(&self, ability: Ability) -> bool {
+        self.abilities.contains(&ability)
+    }
 }
 
 impl Kind {
-    pub const ALL: [Kind; 28] = [
+    pub const ALL: [Kind; 31] = [
         Kind::Rat,
         Kind::Jackal,
         Kind::Goblin,
@@ -126,6 +157,9 @@ impl Kind {
         Kind::Bulette,
         Kind::Oni,
         Kind::FrostGiant,
+        Kind::Monkey,
+        Kind::AcidMound,
+        Kind::PinkJelly,
     ];
 
     pub fn species(self) -> &'static Species {
@@ -145,6 +179,8 @@ impl Kind {
                 armor: 0,
                 verb: "bites",
                 xp: 2,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Jackal => &Species {
                 name: "jackal",
@@ -161,6 +197,8 @@ impl Kind {
                 armor: 0,
                 verb: "bites",
                 xp: 3,
+                abilities: &[],
+                pack: (2, 3),
             },
             Kind::Goblin => &Species {
                 name: "goblin",
@@ -177,6 +215,8 @@ impl Kind {
                 armor: 1,
                 verb: "hits",
                 xp: 6,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Zombie => &Species {
                 name: "zombie",
@@ -193,6 +233,8 @@ impl Kind {
                 armor: 1,
                 verb: "claws",
                 xp: 8,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Orc => &Species {
                 name: "orc",
@@ -209,6 +251,8 @@ impl Kind {
                 armor: 2,
                 verb: "hits",
                 xp: 10,
+                abilities: &[],
+                pack: (1, 2),
             },
             Kind::Ghoul => &Species {
                 name: "ghoul",
@@ -225,6 +269,8 @@ impl Kind {
                 armor: 1,
                 verb: "claws",
                 xp: 16,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Troll => &Species {
                 name: "troll",
@@ -241,6 +287,8 @@ impl Kind {
                 armor: 3,
                 verb: "pounds",
                 xp: 30,
+                abilities: &[Ability::Regenerates],
+                pack: (1, 1),
             },
             Kind::Wraith => &Species {
                 name: "wraith",
@@ -257,6 +305,8 @@ impl Kind {
                 armor: 0,
                 verb: "touches",
                 xp: 40,
+                abilities: &[Ability::DrainsMaxHealth],
+                pack: (1, 1),
             },
             Kind::Kobold => &Species {
                 name: "kobold",
@@ -273,6 +323,8 @@ impl Kind {
                 armor: 0,
                 verb: "stabs",
                 xp: 2,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Newt => &Species {
                 name: "newt",
@@ -289,6 +341,8 @@ impl Kind {
                 armor: 0,
                 verb: "bites",
                 xp: 1,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::GiantBat => &Species {
                 name: "giant bat",
@@ -305,6 +359,8 @@ impl Kind {
                 armor: 0,
                 verb: "bites",
                 xp: 3,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::GiantAnt => &Species {
                 name: "giant ant",
@@ -321,6 +377,8 @@ impl Kind {
                 armor: 1,
                 verb: "bites",
                 xp: 6,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Hobgoblin => &Species {
                 name: "hobgoblin",
@@ -337,6 +395,8 @@ impl Kind {
                 armor: 2,
                 verb: "slashes",
                 xp: 8,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Skeleton => &Species {
                 name: "skeleton",
@@ -353,6 +413,8 @@ impl Kind {
                 armor: 3,
                 verb: "hits",
                 xp: 8,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::GiantSpider => &Species {
                 name: "giant spider",
@@ -369,6 +431,8 @@ impl Kind {
                 armor: 1,
                 verb: "bites",
                 xp: 12,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Ogre => &Species {
                 name: "ogre",
@@ -385,6 +449,8 @@ impl Kind {
                 armor: 1,
                 verb: "smashes",
                 xp: 20,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::StoneGolem => &Species {
                 name: "stone golem",
@@ -401,6 +467,8 @@ impl Kind {
                 armor: 5,
                 verb: "crushes",
                 xp: 25,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Vampire => &Species {
                 name: "vampire",
@@ -417,6 +485,8 @@ impl Kind {
                 armor: 2,
                 verb: "bites",
                 xp: 30,
+                abilities: &[Ability::Regenerates, Ability::DrinksBlood],
+                pack: (1, 1),
             },
             Kind::Dragon => &Species {
                 name: "dragon",
@@ -433,6 +503,8 @@ impl Kind {
                 armor: 5,
                 verb: "rends",
                 xp: 45,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Demon => &Species {
                 name: "demon",
@@ -449,6 +521,8 @@ impl Kind {
                 armor: 3,
                 verb: "claws",
                 xp: 50,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Redcap => &Species {
                 name: "redcap",
@@ -465,6 +539,8 @@ impl Kind {
                 armor: 1,
                 verb: "slashes",
                 xp: 4,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Harpy => &Species {
                 name: "harpy",
@@ -481,6 +557,8 @@ impl Kind {
                 armor: 0,
                 verb: "rakes",
                 xp: 6,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Draugr => &Species {
                 name: "draugr",
@@ -497,6 +575,8 @@ impl Kind {
                 armor: 3,
                 verb: "strikes",
                 xp: 11,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Owlbear => &Species {
                 name: "owlbear",
@@ -505,14 +585,16 @@ impl Kind {
                 speed: 100,
                 sight: 7,
                 opens_doors: false,
-                min_depth: 9,
+                min_depth: 10,
                 max_hp: 22,
                 accuracy: 4,
                 dodge: 2,
-                damage: (4, 9),
+                damage: (3, 8),
                 armor: 2,
                 verb: "mauls",
                 xp: 16,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Gargoyle => &Species {
                 name: "gargoyle",
@@ -529,6 +611,8 @@ impl Kind {
                 armor: 6,
                 verb: "claws",
                 xp: 18,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Bulette => &Species {
                 name: "bulette",
@@ -545,6 +629,8 @@ impl Kind {
                 armor: 4,
                 verb: "bites",
                 xp: 24,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::Oni => &Species {
                 name: "oni",
@@ -561,6 +647,8 @@ impl Kind {
                 armor: 3,
                 verb: "clubs",
                 xp: 30,
+                abilities: &[],
+                pack: (1, 1),
             },
             Kind::FrostGiant => &Species {
                 name: "frost giant",
@@ -577,6 +665,62 @@ impl Kind {
                 armor: 4,
                 verb: "smashes",
                 xp: 40,
+                abilities: &[],
+                pack: (1, 1),
+            },
+            Kind::Monkey => &Species {
+                name: "monkey",
+                glyph: 'M',
+                color: Rgb(170, 125, 75),
+                speed: 125,
+                sight: 8,
+                opens_doors: false,
+                min_depth: 3,
+                max_hp: 6,
+                accuracy: 5,
+                dodge: 5,
+                damage: (1, 3),
+                armor: 0,
+                verb: "grabs at",
+                xp: 4,
+                abilities: &[Ability::StealsAndFlees],
+                pack: (1, 1),
+            },
+            Kind::AcidMound => &Species {
+                name: "acid mound",
+                glyph: 'A',
+                color: Rgb(150, 200, 60),
+                speed: 75,
+                sight: 5,
+                opens_doors: false,
+                min_depth: 6,
+                max_hp: 14,
+                accuracy: 4,
+                dodge: 1,
+                damage: (1, 4),
+                armor: 0,
+                verb: "burns",
+                xp: 9,
+                abilities: &[Ability::CorrodesArmor],
+                pack: (1, 1),
+            },
+            Kind::PinkJelly => &Species {
+                name: "pink jelly",
+                glyph: 'J',
+                color: Rgb(230, 130, 170),
+                speed: 100,
+                sight: 5,
+                opens_doors: false,
+                min_depth: 10,
+                max_hp: 30,
+                accuracy: 3,
+                dodge: 0,
+                damage: (1, 4),
+                armor: 0,
+                verb: "smothers",
+                xp: 3,
+                abilities: &[Ability::Splits],
+                pack: (1, 1),
             },
         }
     }
@@ -591,6 +735,8 @@ pub enum Ai {
     Wandering { goal: Point },
     /// Chasing the player, heading for where it last saw them.
     Hunting { last_seen: Point },
+    /// Running from the player, like a thief with its loot.
+    Fleeing,
 }
 
 #[derive(Clone, Debug)]
@@ -602,6 +748,8 @@ pub struct Monster {
     pub hp: i32,
     /// Floors of scaling on top of its base stats: depth minus 1.
     pub boost: i32,
+    /// An item it stole, dropped when it dies.
+    pub carrying: Option<Item>,
 }
 
 impl Monster {
@@ -621,6 +769,7 @@ impl Monster {
             ai,
             hp: 0,
             boost: depth.saturating_sub(1) as i32,
+            carrying: None,
         };
         monster.hp = monster.max_hp();
         monster
@@ -688,17 +837,19 @@ pub fn spawn_for_floor(rng: &mut Rng, level: &Level, depth: u32) -> Vec<Monster>
     let asleep_percent =
         (ASLEEP_PERCENT - ASLEEP_DROP_PER_FLOOR * (depth as i32 - 1)).max(ASLEEP_MIN_PERCENT);
     let mut monsters: Vec<Monster> = Vec::new();
+    let is_free = |monsters: &[Monster], pos: Point| {
+        level.map.tile(pos).is_walkable() && monsters.iter().all(|m| m.pos != pos)
+    };
     // A few spare attempts, in case a chosen spot is taken.
     for _ in 0..count * 3 {
-        if monsters.len() == count || rooms.is_empty() {
+        if monsters.len() >= count || rooms.is_empty() {
             break;
         }
         // Pick the room first: `rng` can't be borrowed twice in one
         // expression.
         let room = *rooms[rng.index(rooms.len())];
         let pos = dungeon::random_point_in(rng, room);
-        let free = level.map.tile(pos).is_walkable() && monsters.iter().all(|m| m.pos != pos);
-        if !free {
+        if !is_free(&monsters, pos) {
             continue;
         }
         let mut roll = rng.range(0, total_weight);
@@ -715,10 +866,30 @@ pub fn spawn_for_floor(rng: &mut Rng, level: &Level, depth: u32) -> Vec<Monster>
         } else {
             Ai::Wandering { goal: pos }
         };
-        let mut monster = Monster::at_depth(kind, pos, ai, depth);
-        // A random head start stops every monster acting in lockstep.
-        monster.energy = rng.range(0, ACTION_COST);
-        monsters.push(monster);
+        // Pack animals bring friends to the same room, all in the same
+        // mood: a sleeping pack sleeps together.
+        let (fewest, most) = kind.species().pack;
+        let size = rng.range(fewest as i32, most as i32 + 1) as usize;
+        let mut spots = vec![pos];
+        for _ in 0..size * 4 {
+            if spots.len() == size {
+                break;
+            }
+            let p = dungeon::random_point_in(rng, room);
+            if is_free(&monsters, p) && !spots.contains(&p) {
+                spots.push(p);
+            }
+        }
+        for p in spots {
+            let ai = match ai {
+                Ai::Wandering { .. } => Ai::Wandering { goal: p },
+                other => other,
+            };
+            let mut monster = Monster::at_depth(kind, p, ai, depth);
+            // A random head start stops every monster acting in lockstep.
+            monster.energy = rng.range(0, ACTION_COST);
+            monsters.push(monster);
+        }
     }
     monsters
 }
@@ -779,6 +950,17 @@ mod tests {
         for kind in [Kind::Vampire, Kind::Dragon, Kind::Demon] {
             assert!(deepest.contains(&kind), "{kind:?} missing at depth 26");
         }
+    }
+
+    #[test]
+    fn packs_arrive_together() {
+        let mut rng = Rng::new(12);
+        let level = generate(&mut rng, &STANDARD);
+        let packs = (0..40)
+            .map(|_| spawn_for_floor(&mut rng, &level, 6))
+            .filter(|ms| ms.iter().filter(|m| m.kind == Kind::Orc).count() >= 2)
+            .count();
+        assert!(packs > 0, "orcs never came in a group");
     }
 
     /// Every kind needs its own letter, or the map becomes ambiguous.

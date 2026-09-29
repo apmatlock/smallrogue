@@ -12,7 +12,7 @@ use crate::grid::Grid;
 use crate::item::{self, FloorItem, ItemKind, PotionKind};
 use crate::lore::Lore;
 use crate::map::{Map, Tile};
-use crate::monster::{self, Ai, Monster};
+use crate::monster::{self, Ability, Ai, Monster};
 use crate::player::{Hunger, Player};
 use crate::rng::{self, Rng};
 use crate::skills::{self, Attribute, Skill};
@@ -424,17 +424,25 @@ impl Game {
             Some(damage) => {
                 self.monsters[i].hp -= damage;
                 if self.monsters[i].hp <= 0 {
-                    let xp = self.monsters.remove(i).xp();
+                    let dead = self.monsters.remove(i);
                     self.log_as(&format!("You kill the {name}!"), MsgKind::Good);
-                    self.gain_xp(xp);
+                    self.drop_loot(&dead);
+                    self.gain_xp(dead.xp());
                     return;
                 }
                 self.log(&format!("You hit the {name} for {damage}."));
+                if self.monsters[i].species().has(Ability::Splits) {
+                    self.split_monster(i);
+                }
             }
         }
-        self.monsters[i].ai = Ai::Hunting {
-            last_seen: self.player.pos,
-        };
+        // Being attacked alerts a monster, but a thief with loot keeps
+        // running.
+        if self.monsters[i].carrying.is_none() {
+            self.monsters[i].ai = Ai::Hunting {
+                last_seen: self.player.pos,
+            };
+        }
     }
 
     /// Monster `i` attacks the player.
@@ -446,6 +454,15 @@ impl Game {
         match combat::resolve(&mut self.rng, m.attack(), self.player.defense()) {
             None => self.log(&format!("The {name} misses you.")),
             Some(damage) => {
+                let species = self.monsters[i].species();
+                // A thief's hit steals instead of hurting, if there is
+                // anything loose to take.
+                if species.has(Ability::StealsAndFlees)
+                    && self.monsters[i].carrying.is_none()
+                    && self.steal_item(i)
+                {
+                    return;
+                }
                 self.player.hp -= damage;
                 self.log_as(
                     &format!("The {name} {verb} you for {damage}."),
@@ -456,6 +473,16 @@ impl Game {
                 }
                 if self.player.hp <= 0 {
                     self.kill_player(&format!("{} {name}", article(name)));
+                    return;
+                }
+                if species.has(Ability::DrainsMaxHealth) {
+                    self.drain_max_health(i);
+                }
+                if species.has(Ability::DrinksBlood) {
+                    self.drink_blood(i, damage);
+                }
+                if species.has(Ability::CorrodesArmor) {
+                    self.acid_hit();
                 }
             }
         }

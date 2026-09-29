@@ -18,6 +18,7 @@
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
 //! - `ai`      — what monsters do on their turn
+//! - `abilities` — special monster powers: stealing, draining, splitting
 //! - `bot`     — a bot player, auto-explore and travel
 //! - `sim`     — headless bot runs for balance testing
 //! - `cli`     — command-line options
@@ -30,6 +31,7 @@
 //! Run with `cargo run -- --seed 1234` to replay a specific dungeon,
 //! `--bot` to watch the bot play, or `--simulate 200` for balance runs.
 
+mod abilities;
 mod ai;
 mod bot;
 mod cli;

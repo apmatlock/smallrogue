@@ -106,7 +106,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify ✅ |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use ✅ |
 | 9 | Hunger and traps | Food clock and hidden traps ✅ |
-| 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs |
+| 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs ✅ |
 | 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where |
 | 12 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
 
@@ -121,6 +121,9 @@ Added to the plan after comparing our roster with the recurring cast of classic 
    - A **splitter**, a jelly, spawns copies when hit, with a cap so floors can't overflow. Jellies conventionally use `j`, so either they or our jackal need a different letter.
 3. **Packs (medium).** Jackals and orcs spawn in groups, which makes doorways and corridors matter.
 4. **Later, each needing a new system.** Ranged attackers that keep their distance, such as centaurs or goblin archers, need ranged attacks. Paralysis, poison and petrification need a status-effect system.
+
+**Built (steps 1 to 3):** trolls regenerate 3% of full health a turn; wraiths drain 1 maximum health per hit (never below 10); vampires regenerate and heal by the damage they deal; the monkey (`M`, depth 3, faster than the player, can't open doors) steals one unequipped item and flees, dropping it when killed; the acid mound (`A`, depth 6, slow) has a one-in-three chance per hit to take 1 point off worn armor's enchantment, never below -1, hidden on unidentified armor; the pink jelly (`J`, depth 10) splits when hit without dying, sharing its health, up to 10 per floor; jackals come in packs of 2-3 and orcs in groups of 1-2. The owlbear moved to depth 10 with slightly lower damage.
+- **Tuning with abilities (200 bot runs each).** First pass: median final depth 12, with orc packs the top killer. Smaller packs and spreading out the depth 8-9 arrivals didn't move the median. A controlled test on the same 100 seeds found the systemic cause: switching acid off raised the median from 12 to 16, while switching theft off only reached 13. Permanent armor loss on every acid hit made every later fight deadlier. Final: median final depth 15, median death depth 13, 12 starvations. Step 4 (ranged attacks, status effects) is still to come.
 
 Milestone 11's zones will then decide which abilities appear where: for example, drainers and ghouls in crypts, jellies and acid in flooded halls, packs and thieves in warrens.
 

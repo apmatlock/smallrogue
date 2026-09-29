@@ -4,10 +4,11 @@
 //! split across files, which keeps game.rs focused on the player.
 
 use crate::game::Game;
+use crate::geom::DIRECTIONS_8;
 use crate::geom::Point;
 use crate::grid::Grid;
 use crate::map::Tile;
-use crate::monster::{ACTION_COST, Ai};
+use crate::monster::{ACTION_COST, Ability, Ai};
 use crate::path;
 use crate::skills::Skill;
 
@@ -37,6 +38,12 @@ impl Game {
         // read the others (to avoid walking into them), which a
         // mutable iterator over the Vec would not allow.
         for i in 0..self.monsters.len() {
+            // Regenerating monsters heal about 3% of full health a turn.
+            let m = &mut self.monsters[i];
+            if m.species().has(Ability::Regenerates) {
+                let max = m.max_hp();
+                m.hp = (m.hp + (max * 3 / 100).max(1)).min(max);
+            }
             self.monsters[i].energy += self.monsters[i].species().speed;
             while self.monsters[i].energy >= ACTION_COST {
                 if self.death.is_some() {
@@ -118,6 +125,10 @@ impl Game {
             Ai::Hunting { last_seen } => last_seen,
             Ai::Wandering { goal } => goal,
             Ai::Asleep => return,
+            Ai::Fleeing => {
+                self.monster_flee(i);
+                return;
+            }
         };
         match self.monster_path_step(i, goal) {
             Some(step) => self.monster_step(i, step),
@@ -132,6 +143,32 @@ impl Game {
             // Blocked while it can still see the player (usually by
             // other monsters in the way): wait for a gap.
             None => {}
+        }
+    }
+
+    /// Steps to whichever neighboring tile is farthest from the player.
+    /// Cornered, it fights back if the player is next to it.
+    fn monster_flee(&mut self, i: usize) {
+        let pos = self.monsters[i].pos;
+        let player = self.player.pos;
+        let open = |p: Point| {
+            self.map.tile(p).is_walkable()
+                && p != player
+                && self.monster_grid.get(p) == Some(&false)
+        };
+        let best = DIRECTIONS_8
+            .iter()
+            .map(|&d| pos + d)
+            .filter(|&p| open(p))
+            .max_by_key(|p| p.dist_sq(player));
+        match best {
+            Some(step) if step.dist_sq(player) > pos.dist_sq(player) => {
+                self.monster_grid.set(pos, false);
+                self.monster_grid.set(step, true);
+                self.monsters[i].pos = step;
+            }
+            _ if pos.is_adjacent(player) => self.monster_attack(i),
+            _ => {}
         }
     }
 

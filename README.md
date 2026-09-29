@@ -91,8 +91,8 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 | `+` | Closed door |
 | `'` | Open door |
 | `>` | Stairs down |
-| `r` `j` `g` `z` `k` `:` `B` `R` `a` `y` | Early: rat, jackal, goblin, zombie, kobold, newt, giant bat, redcap, giant ant, harpy |
-| `o` `h` `Z` `d` `G` `s` `Y` `O` `q` `X` | Middle: orc, hobgoblin, skeleton, draugr, ghoul, giant spider, owlbear, ogre, gargoyle, bulette |
+| `r` `j` `g` `z` `k` `:` `B` `R` `M` `a` `y` | Early: rat, jackal, goblin, zombie, kobold, newt, giant bat, redcap, monkey, giant ant, harpy |
+| `o` `h` `Z` `A` `d` `J` `G` `s` `Y` `O` `q` `X` | Middle: orc, hobgoblin, skeleton, acid mound, draugr, pink jelly, ghoul, giant spider, owlbear, ogre, gargoyle, bulette |
 | `T` `8` `U` `W` `V` `P` `D` `&` | Deep: troll, stone golem, oni, wraith, vampire, frost giant, dragon, demon |
 | `)` | Weapon |
 | `[` | Armor |
@@ -110,7 +110,9 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 **Monsters** sleep, wander, or hunt you. A monster can see you exactly when you can see it. Hunters that lose sight of you go to where they last saw you. Jackals are fast and zombies are slow. Rats and jackals can't open doors, so closing one can save you.
 
-**The dungeon gets harder the deeper you go.** Twenty-eight kinds of monster arrive at set depths, from rats and newts on the first floor to dragons at 22 and demons at 25, and are most common for a few floors after they first appear. Every monster also grows stronger with depth: its health compounds by 6% per floor, and it gains damage every 2 floors, accuracy every 3 and dodge every 4. Deeper floors hold more monsters, and fewer of them are asleep.
+**The dungeon gets harder the deeper you go.** Thirty-one kinds of monster arrive at set depths, from rats and newts on the first floor to dragons at 22 and demons at 25, and are most common for a few floors after they first appear. Every monster also grows stronger with depth: its health compounds by 6% per floor, and it gains damage every 2 floors, accuracy every 3 and dodge every 4. Deeper floors hold more monsters, and fewer of them are asleep.
+
+**Some monsters have special powers.** Trolls regenerate, so finish them quickly. A wraith's touch permanently lowers your maximum health. Vampires regenerate and heal themselves by drinking your blood. Monkeys snatch an item from your pack and run; they are faster than you but can't open doors, and they drop the item when killed. Acid mounds can eat away at your armor's enchantment, though never below -1. Pink jellies split in two whenever you hit them without killing them. Jackals hunt in packs of two or three, and orcs sometimes travel in pairs.
 
 **Combat** rolls to hit by comparing the attacker's accuracy with the defender's dodge, then rolls damage and subtracts armor. A hit always does at least 1 damage. You slowly regain health over time. When you die, a death screen shows what killed you, how deep you got, and the seed.
 
@@ -161,6 +163,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
 | `lore` | Per-run item appearances, what the player has identified, and item names |
 | `monster`, `ai`, `path` | Monster definitions, spawning, behavior, and pathfinding |
+| `abilities` | Special monster powers: stealing, draining, corroding, splitting |
 | `dungeon` | Seeded room, corridor, door, and stair generation |
 | `map`, `grid`, `geom` | Tiles, grid storage, and geometry |
 | `fov` | Symmetric shadowcasting for field of view |
@@ -175,7 +178,7 @@ The terminal renderer draws only changed cells, and the game waits for input wit
 
 The intended game is a grim, fast, endless fantasy crawl with short runs and depth reached as the score. Next milestones include:
 
-- Monster abilities: regenerating trolls, draining wraiths, thieves, gear-wreckers, splitting jellies and packs
+- More monster abilities: ranged attackers, and status effects like poison and paralysis
 - Distinct themed dungeon zones
 - High scores, help, and balance
 

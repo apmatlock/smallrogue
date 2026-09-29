@@ -512,6 +512,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
             Ai::Asleep => "asleep",
             Ai::Wandering { .. } => "wandering",
             Ai::Hunting { .. } => "hunting",
+            Ai::Fleeing => "fleeing",
         };
         draw_bar(
             frame,
