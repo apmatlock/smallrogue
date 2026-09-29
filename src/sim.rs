@@ -49,6 +49,7 @@ pub struct RunResult {
 /// Plays one run with the bot, until it dies or reaches `max_turns`.
 pub fn play(seed: u64, max_turns: u64) -> RunResult {
     let mut game = Game::new(seed);
+    let mut memory = bot::BotMemory::default();
     let mut idle = 0;
     let (mut depth, mut depth_turn) = (game.depth, game.turn);
     let ending = loop {
@@ -59,7 +60,7 @@ pub fn play(seed: u64, max_turns: u64) -> RunResult {
             break Ending::TurnLimit;
         }
         let turn = game.turn;
-        game.apply(bot::next_action(&game));
+        game.apply(bot::next_action(&game, &mut memory));
         idle = if game.turn == turn { idle + 1 } else { 0 };
         if idle >= STUCK_AFTER {
             break Ending::Stuck;

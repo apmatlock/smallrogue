@@ -106,6 +106,8 @@ const BOT_SPEEDS_MS: [u64; 7] = [500, 250, 120, 60, 25, 8, 0];
 struct Autoplay {
     speed: usize,
     paused: bool,
+    /// What the bot remembers between turns, like a plan to escape.
+    memory: bot::BotMemory,
     /// Bot actions in a row that used no time. A safety net: if the bot
     /// ever keeps choosing something the game refuses, it stops rather
     /// than spinning forever.
@@ -117,6 +119,7 @@ impl Autoplay {
         Self {
             speed: 2,
             paused: false,
+            memory: bot::BotMemory::default(),
             idle: 0,
         }
     }
@@ -160,7 +163,7 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
             match input::poll_key(wait)? {
                 Polled::Nothing if !bot.paused => {
                     let turn = game.turn;
-                    game.apply(bot::next_action(&game));
+                    game.apply(bot::next_action(&game, &mut bot.memory));
                     bot.idle = if game.turn == turn { bot.idle + 1 } else { 0 };
                     if bot.idle >= 20 {
                         autoplay = None;

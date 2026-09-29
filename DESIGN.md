@@ -161,6 +161,16 @@ After asking Codex how to make the bot more successful, four small changes that 
 - **Kept: danger-aware emergencies.** The bot adds up the worst hits of adjacent monsters and fast hunters two tiles away (known from each monster's kind and the depth). It teleports when surrounded or when a healing potion wouldn't cover a worst-case turn, drinks healing otherwise, and saves potions of life for emergencies or a quiet moment at half health.
 - **Fresh-seed result** (after a Codex fix so fast monsters count for two attacks and healing is capped at full health): 85 runs deeper, 62 shallower, 53 unchanged; 178 deaths down to 172; average depth 22.8 to 23.1; median unchanged at 14. The larger gains Codex suggested (fighting from corridors, committed escapes, closing doors on pursuers, supply detours) need the bot to remember a plan between turns.
 
+### Bot memory: Escape
+
+The bot now keeps a tiny memory between turns: at most one plan (a purpose, a goal tile and a turn budget), wiped on every new floor. Plans stick even as monsters move in and out of view, which is what caused earlier pacing loops, and always end on arrival, when the budget runs out, or when no route is left. Emergencies still come first.
+
+The first purpose is **Escape**: when at half health or less and nothing hunting it is faster than the player, the bot heads for known stairs and takes them. A same-speed pursuer spends its actions following, not attacking.
+
+- On 200 fresh seeds, escaping when hurt was roughly neutral (31 runs deeper, 29 shallower; median 14 to 15; average 23.1 to 23.3).
+- A second trigger, walking away from slow monsters, looked good on the 100 tuning seeds but lost clearly on fresh seeds (47 deeper, 78 shallower, 11 more deaths), so it was removed. Skipping those fights costs experience the bot needs later.
+- No stalls in any run. The same memory is ready for the Hold (fight from corridors) and Fetch (short supply detours) plans.
+
 ## Later, after v1
 
 - Save on quit

@@ -25,9 +25,48 @@ const HEAL_BELOW: i32 = 40;
 /// Only try unknown potions when at least this healthy.
 const EXPERIMENT_ABOVE: i32 = 70;
 
+/// Turns an escape plan may run before the bot gives up on it.
+const ESCAPE_BUDGET: u16 = 100;
+/// Hurt at or below this percent, the bot runs for the stairs if
+/// nothing hunting it is faster than the player.
+const ESCAPE_BELOW: i32 = 50;
+
+/// Everything the bot remembers between turns: at most one plan.
+///
+/// A plan is a decision the bot sticks to even as monsters move in and
+/// out of view. Deciding afresh every turn from what is in sight is what
+/// made earlier versions pace back and forth forever, so plans stick,
+/// but always end: on arrival, on running out of turns, when no route
+/// is left, or on a new floor.
+#[derive(Clone, Debug, Default)]
+pub struct BotMemory {
+    plan: Option<Plan>,
+    /// The floor the memory belongs to.
+    depth: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Plan {
+    purpose: Purpose,
+    goal: Point,
+    turns_left: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Purpose {
+    /// Get to the stairs and take them, leaving a fight behind.
+    Escape,
+}
+
 /// The bot's next move. Always returns something; waiting is the
 /// fallback when nothing better comes to mind.
-pub fn next_action(game: &Game) -> Action {
+pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
+    if memory.depth != game.depth {
+        *memory = BotMemory {
+            plan: None,
+            depth: game.depth,
+        };
+    }
     let pos = game.player.pos;
     let hp = health_percent(game);
     let visible = visible_monsters(game);
@@ -120,6 +159,14 @@ pub fn next_action(game: &Game) -> Action {
         return Action::Descend;
     }
 
+    // Follow through on an escape, or decide to start one.
+    if memory.plan.is_none() {
+        memory.plan = consider_escape(game, &hunting, hp);
+    }
+    if let Some(action) = follow_plan(game, memory) {
+        return action;
+    }
+
     // Fight whatever is next to us, weakest-looking first.
     if let Some(m) = adjacent.iter().min_by_key(|m| health_bar(m)) {
         return Action::Move(m.pos - pos);
@@ -163,6 +210,60 @@ pub fn next_action(game: &Game) -> Action {
     // Nothing left to explore and no way to the stairs: a sleeping
     // monster must be blocking the way on. Only now go and fight it.
     step_toward_monster(game, &asleep).unwrap_or(Action::Wait)
+}
+
+/// Where the stairs are, if the player has seen them.
+fn known_stairs(game: &Game) -> Option<Point> {
+    game.map
+        .points()
+        .find(|&p| game.map.is_revealed(p) && game.map.tile(p) == Tile::StairsDown)
+}
+
+/// Decides whether to run for the stairs: when hurt, and nothing
+/// hunting is faster than the player. A monster at the player's speed
+/// that follows spends its actions moving, not attacking, so reaching
+/// the stairs costs nothing.
+///
+/// Also walking away from slow monsters (zombies, golems, ogres) looked
+/// good on 100 tuning seeds but lost on 200 fresh ones (47 runs deeper,
+/// 78 shallower): skipping those fights costs experience needed later.
+fn consider_escape(game: &Game, hunting: &[&Monster], hp: i32) -> Option<Plan> {
+    let none_faster = hunting.iter().all(|m| m.species().speed <= 100);
+    if hunting.is_empty() || hp > ESCAPE_BELOW || !none_faster {
+        return None;
+    }
+    let goal = known_stairs(game)?;
+    step_to(game, |p| p == goal)?;
+    Some(Plan {
+        purpose: Purpose::Escape,
+        goal,
+        turns_left: ESCAPE_BUDGET,
+    })
+}
+
+/// One step of the current plan, clearing it once it's over.
+fn follow_plan(game: &Game, memory: &mut BotMemory) -> Option<Action> {
+    let plan = memory.plan.as_mut()?;
+    if plan.turns_left == 0 {
+        memory.plan = None;
+        return None;
+    }
+    plan.turns_left -= 1;
+    match plan.purpose {
+        Purpose::Escape => {
+            if game.player.pos == plan.goal {
+                memory.plan = None;
+                return Some(Action::Descend);
+            }
+            // Routes ignore monsters, so one in the way gets attacked.
+            let goal = plan.goal;
+            let step = step_to(game, |p| p == goal);
+            if step.is_none() {
+                memory.plan = None;
+            }
+            step
+        }
+    }
 }
 
 /// One step of auto-explore: toward the nearest item worth picking up
@@ -654,9 +755,13 @@ mod tests {
             .push(Monster::new(Kind::Rat, near, Ai::Wandering { goal: near }));
         game.update_fov();
         // Wanderers are ignored: the choice is the same without it.
-        let with_wanderer = next_action(&game);
+        let with_wanderer = next_action(&game, &mut BotMemory::default());
         let wanderer = game.monsters.pop().unwrap();
-        assert_eq!(with_wanderer, next_action(&game), "chased a wanderer");
+        assert_eq!(
+            with_wanderer,
+            next_action(&game, &mut BotMemory::default()),
+            "chased a wanderer"
+        );
         game.monsters.push(wanderer);
 
         // No weapon, armor or other gear: enchanting has no target.
@@ -667,7 +772,7 @@ mod tests {
         game.lore.learn(kind);
         game.player.add_item(Item::new(kind)).unwrap();
         for _ in 0..5 {
-            let action = next_action(&game);
+            let action = next_action(&game, &mut BotMemory::default());
             assert!(!matches!(action, Action::Read { .. }), "{action:?}");
             game.apply(action);
         }
@@ -688,7 +793,7 @@ mod tests {
         game.map.reveal(stairs);
         let mut steps = 0;
         while game.depth == 1 {
-            let action = next_action(&game);
+            let action = next_action(&game, &mut BotMemory::default());
             if stairs_step(&game).is_some() {
                 assert_eq!(Some(action), stairs_step(&game), "wandered off exploring");
             }
@@ -723,7 +828,10 @@ mod tests {
         let mut game = Game::new(4);
         game.monsters.clear();
         game.player.food = crate::player::HUNGRY_AT;
-        assert!(matches!(next_action(&game), Action::Eat(_)));
+        assert!(matches!(
+            next_action(&game, &mut BotMemory::default()),
+            Action::Eat(_)
+        ));
         game.player.food = crate::player::FOOD_START;
 
         // Put a known trap on the bot's next step: it should go round.
@@ -780,7 +888,86 @@ mod tests {
         let orc = hunter_at(&game, crate::monster::Kind::Orc, Point::new(3, 5));
         game.monsters.push(orc);
         game.update_fov();
-        assert_eq!(next_action(&game), Action::Descend);
+        assert_eq!(
+            next_action(&game, &mut BotMemory::default()),
+            Action::Descend
+        );
+    }
+
+    /// A quiet room with seen stairs at the far end, (19,5).
+    fn room_with_stairs() -> (Game, Point) {
+        let mut game = quiet_room();
+        let stairs = Point::new(19, 5);
+        game.map.set_tile(stairs, Tile::StairsDown);
+        game.map.reveal(stairs);
+        for p in game.map.points().collect::<Vec<_>>() {
+            game.map.reveal(p);
+        }
+        (game, stairs)
+    }
+
+    #[test]
+    fn hurt_it_runs_for_the_stairs_and_keeps_running() {
+        use crate::monster::Kind;
+        let (mut game, stairs) = room_with_stairs();
+        let orc = hunter_at(&game, Kind::Orc, Point::new(1, 5)); // speed 100
+        game.monsters.push(orc);
+        game.update_fov();
+        game.player.hp = game.player.max_hp / 3;
+        game.player.inventory.retain(|i| i.equipped); // no potions to lean on
+        let mut memory = BotMemory::default();
+        let first = next_action(&game, &mut memory);
+        assert_eq!(
+            first,
+            Action::Move(Point::new(1, 0)),
+            "heads for the stairs, not the orc"
+        );
+        assert!(memory.plan.is_some());
+
+        // Even with the orc gone from view, the plan holds.
+        game.monsters.clear();
+        game.update_fov();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0))
+        );
+        let _ = stairs;
+    }
+
+    #[test]
+    fn it_does_not_run_from_something_faster() {
+        use crate::monster::Kind;
+        let (mut game, _) = room_with_stairs();
+        let bat = hunter_at(&game, Kind::GiantBat, Point::new(3, 5)); // speed 200
+        game.monsters.push(bat);
+        game.update_fov();
+        game.player.hp = game.player.max_hp / 3;
+        game.player.inventory.retain(|i| i.equipped);
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0)),
+            "fights the bat"
+        );
+        assert!(memory.plan.is_none());
+    }
+
+    #[test]
+    fn a_new_floor_wipes_the_plan() {
+        use crate::monster::Kind;
+        let (mut game, _) = room_with_stairs();
+        let orc = hunter_at(&game, Kind::Orc, Point::new(1, 5));
+        game.monsters.push(orc);
+        game.update_fov();
+        game.player.hp = game.player.max_hp / 3;
+        game.player.inventory.retain(|i| i.equipped);
+        let mut memory = BotMemory::default();
+        next_action(&game, &mut memory);
+        assert!(memory.plan.is_some(), "hurt, it plans an escape");
+        game.depth += 1;
+        game.monsters.clear();
+        next_action(&game, &mut memory);
+        assert!(memory.plan.is_none());
     }
 
     #[test]
@@ -798,7 +985,7 @@ mod tests {
         let letter = game.player.add_item(Item::new(teleport)).unwrap();
         game.player.hp = 8;
         assert_eq!(
-            next_action(&game),
+            next_action(&game, &mut BotMemory::default()),
             Action::Read {
                 scroll: letter,
                 target: None
@@ -827,7 +1014,7 @@ mod tests {
         game.player.hp = 2 * worst - 1;
         assert!(game.player.hp > worst, "one bite alone can't kill");
         assert_eq!(
-            next_action(&game),
+            next_action(&game, &mut BotMemory::default()),
             Action::Read {
                 scroll,
                 target: None
@@ -842,10 +1029,13 @@ mod tests {
         let life = ItemKind::Potion(PotionKind::Life);
         game.lore.learn(life);
         let letter = game.player.add_item(Item::new(life)).unwrap();
-        assert_ne!(next_action(&game), Action::Drink(letter));
+        assert_ne!(
+            next_action(&game, &mut BotMemory::default()),
+            Action::Drink(letter)
+        );
         game.player.hp = game.player.max_hp / 3;
         assert_eq!(
-            next_action(&game),
+            next_action(&game, &mut BotMemory::default()),
             Action::Drink(letter),
             "used when badly hurt"
         );
@@ -863,11 +1053,14 @@ mod tests {
         game.monsters.push(rat);
         game.update_fov();
         assert!(game.is_visible(Point::new(8, 5)));
-        assert!(!matches!(next_action(&game), Action::Read { .. }));
+        assert!(!matches!(
+            next_action(&game, &mut BotMemory::default()),
+            Action::Read { .. }
+        ));
         game.monsters.clear();
         game.update_fov();
         assert_eq!(
-            next_action(&game),
+            next_action(&game, &mut BotMemory::default()),
             Action::Read {
                 scroll: letter,
                 target: None
@@ -895,9 +1088,10 @@ mod tests {
         for seed in 0..4 {
             let mut game = Game::new(seed);
             let mut idle = 0;
+            let mut memory = BotMemory::default();
             while game.death.is_none() && game.turn < 1_500 {
                 let turn = game.turn;
-                game.apply(next_action(&game));
+                game.apply(next_action(&game, &mut memory));
                 idle = if game.turn == turn { idle + 1 } else { 0 };
                 assert!(idle < 20, "seed {seed}: stuck at turn {turn}");
             }
