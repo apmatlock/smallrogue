@@ -4,7 +4,27 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-09-29 (third session)
 
-Last commit: the `--simulate` per-run output. Working on **bot memory: Fetch** next.
+Last commit: bot memory with a Fetch plan. Next up: Milestone 11 (themed zones), or a balance pass first (see below).
+
+### Fetch plan: kept
+
+Once the stairs are known, before heading down, the bot goes back for the nearest item it has seen and wants (the same test as exploring) within 15 steps. The trip has a turn budget (twice the distance plus 10) and pauses for fights (hunting or adjacent monsters) and for resting below 80% health. A fetch that runs out of turns or loses its route is not retried for that item on the same floor.
+
+| | Baseline (`5c7bcc1`) | Fetch |
+|---|---|---|
+| Seeds 1-100: median / average depth | 14 / 21.0 | 29 / 29.9 |
+| Seeds 1-100: deaths | 86 | 66 |
+| Seeds 1-100: same seed | | 68 deeper, 19 shallower |
+| **Fresh 1001-1200: median / average depth** | **15 / 23.3** | **19 / 28.9** |
+| Fresh: deaths | 173 | 131 |
+| Fresh: same seed | | 120 deeper, 58 shallower |
+| Fresh: hit the 20,000-turn limit | 27 | 69 |
+
+A first version paused for any awake monster and stalled on 5 seeds: a fleeing monkey at the edge of view paused the fetch, the bot turned for the stairs, lost sight of it, and resumed, forever. Fixed, with 0 stalls since.
+
+**Balance note:** results are now split in two. Most runs die by depth 20, but about a third go past depth 40 and never die before the turn limit. The median (19) is at the top of the 15-20 target, and the late game is probably too easy. A job for the balance pass.
+
+Tip: `target/simwatch.py LOG BASELINE.csv TOTAL ...` (untracked) prints a live comparison while simulations run; `watch -n 10 python3 target/simwatch.py ...` in a tmux pane keeps it refreshed.
 
 ### Hold plan: tried and dropped
 
@@ -24,9 +44,8 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 
 ### Next step
 
-1. **Bot memory: Fetch.** Short, budgeted detours for food, healing or clear gear upgrades before diving. Starvation deaths are a target.
-2. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
-3. **Milestone 12: polish and balance.** High scores, help, final tuning.
+1. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
+2. **Milestone 12: polish and balance.** High scores, help, final tuning; the late game needs to be harder (see the balance note above).
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
@@ -39,7 +58,7 @@ Smaller open items:
 |---|---|
 | 0-9 | Setup, map, dungeon generation, field of view, monsters and turns, combat, items, identification, growth (levels and skills), hunger and traps |
 | 10 | Monster abilities: regeneration, life drain, blood drinking, theft, acid, splitting, packs |
-| Extras | Bot, auto-explore (`x`), stair travel (`>`), watchable bot (`--bot`, `B`), headless balance runs (`--simulate N`); monsters scale with depth; 31 monster kinds; food bar; bot memory with Escape |
+| Extras | Bot, auto-explore (`x`), stair travel (`>`), watchable bot (`--bot`, `B`), headless balance runs (`--simulate N`); monsters scale with depth; 31 monster kinds; food bar; bot memory with Escape and Fetch |
 
 ## Balance, as of the last measurement
 
@@ -47,10 +66,10 @@ Measured with the bot, which plays like a careful beginner. Target set by the us
 
 | Measure (200 fresh seeds, 1001-1200) | Value |
 |---|---|
-| Median final depth | 14-15 |
-| Average final depth | 23.3 |
-| Deaths | 173 of 200 |
-| Top killers | trolls, bulettes, draugr, orcs, giant spiders, pink jellies, wraiths |
+| Median final depth | 19 |
+| Average final depth | 28.9 |
+| Deaths | 131 of 200 (69 hit the turn limit) |
+| Top killers | trolls, bulettes, wraiths, orcs, gargoyles, demons, draugr, ghouls |
 
 The tuning knobs are constants at the top of `src/monster.rs` (scaling, alertness, monster count) and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
 

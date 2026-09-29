@@ -130,9 +130,51 @@ pub fn reachable(
     found
 }
 
+/// Every tile within `max` steps of `from` (not counting `from`
+/// itself), with how many steps it takes to get there, nearest first.
+pub fn distances(
+    from: Point,
+    width: i32,
+    height: i32,
+    max: usize,
+    can_enter: impl Fn(Point) -> bool,
+) -> Vec<(Point, usize)> {
+    let mut seen = Grid::new(width, height, false);
+    seen.set(from, true);
+    let mut queue = VecDeque::from([(from, 0)]);
+    let mut found = Vec::new();
+    while let Some((p, dist)) = queue.pop_front() {
+        if dist == max {
+            continue;
+        }
+        for d in STEPS {
+            let n = p + d;
+            if seen.get(n) == Some(&false) && can_enter(n) {
+                seen.set(n, true);
+                found.push((n, dist + 1));
+                queue.push_back((n, dist + 1));
+            }
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distances_stop_at_the_limit() {
+        let found = distances(Point::new(0, 0), 10, 1, 3, |_| true);
+        assert_eq!(
+            found,
+            vec![
+                (Point::new(1, 0), 1),
+                (Point::new(2, 0), 2),
+                (Point::new(3, 0), 3)
+            ]
+        );
+    }
 
     #[test]
     fn goes_around_a_wall() {

@@ -31,6 +31,10 @@ const ESCAPE_BUDGET: u16 = 100;
 /// nothing hunting it is faster than the player.
 const ESCAPE_BELOW: i32 = 50;
 
+/// How far, in steps, the bot will go out of its way for an item it
+/// has seen before taking the stairs.
+const FETCH_REACH: usize = 15;
+
 /// Everything the bot remembers between turns: at most one plan.
 ///
 /// A plan is a decision the bot sticks to even as monsters move in and
@@ -43,6 +47,9 @@ pub struct BotMemory {
     plan: Option<Plan>,
     /// The floor the memory belongs to.
     depth: u32,
+    /// Items this floor the bot set out to fetch and didn't get to, so
+    /// it doesn't keep setting out for them.
+    gave_up_on: Vec<Point>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +63,8 @@ struct Plan {
 enum Purpose {
     /// Get to the stairs and take them, leaving a fight behind.
     Escape,
+    /// Go and pick up an item already seen, before heading down.
+    Fetch,
 }
 
 /// The bot's next move. Always returns something; waiting is the
@@ -63,8 +72,8 @@ enum Purpose {
 pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     if memory.depth != game.depth {
         *memory = BotMemory {
-            plan: None,
             depth: game.depth,
+            ..BotMemory::default()
         };
     }
     let pos = game.player.pos;
@@ -197,7 +206,14 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     }
     // Descending comes before exploring: once the stairs are known and
     // reachable, head down. Short runs reward depth, not thoroughness.
-    // Items along the way still get picked up by walking over them.
+    // Items along the way still get picked up by walking over them, and
+    // ones seen nearby are fetched first.
+    if known_stairs(game).is_some() && memory.plan.is_none() {
+        memory.plan = consider_fetch(game, &memory.gave_up_on);
+        if let Some(action) = follow_plan(game, memory) {
+            return action;
+        }
+    }
     if game.map.tile(pos) == Tile::StairsDown {
         return Action::Descend;
     }
@@ -241,11 +257,39 @@ fn consider_escape(game: &Game, hunting: &[&Monster], hp: i32) -> Option<Plan> {
     })
 }
 
+/// Decides whether to go back for an item: the nearest one worth
+/// picking up that has been seen within `FETCH_REACH` steps.
+fn consider_fetch(game: &Game, gave_up_on: &[Point]) -> Option<Plan> {
+    let map = &game.map;
+    let (goal, steps) = path::distances(
+        game.player.pos,
+        map.width(),
+        map.height(),
+        FETCH_REACH,
+        |p| known_walkable(game, p),
+    )
+    .into_iter()
+    .find(|&(p, _)| worth_fetching(game, p) && !gave_up_on.contains(&p))?;
+    Some(Plan {
+        purpose: Purpose::Fetch,
+        goal,
+        // Room to fight something met on the way.
+        turns_left: steps as u16 * 2 + 10,
+    })
+}
+
+fn worth_fetching(game: &Game, p: Point) -> bool {
+    game.map.is_revealed(p)
+        && game
+            .item_at(p)
+            .is_some_and(|fi| worth_picking_up(game, &fi.item))
+}
+
 /// One step of the current plan, clearing it once it's over.
 fn follow_plan(game: &Game, memory: &mut BotMemory) -> Option<Action> {
     let plan = memory.plan.as_mut()?;
     if plan.turns_left == 0 {
-        memory.plan = None;
+        give_up(memory);
         return None;
     }
     plan.turns_left -= 1;
@@ -263,6 +307,44 @@ fn follow_plan(game: &Game, memory: &mut BotMemory) -> Option<Action> {
             }
             step
         }
+        Purpose::Fetch => {
+            // Fights and resting come first; the plan waits (while its
+            // turns still run down). Only monsters the bot would fight
+            // count: waiting on a wanderer or a fleeing thief at the
+            // edge of view would have the bot step in and out of sight
+            // of it forever.
+            let pos = game.player.pos;
+            let fight = visible_monsters(game)
+                .iter()
+                .any(|m| matches!(m.ai, Ai::Hunting { .. }) || m.pos.is_adjacent(pos));
+            if fight || health_percent(game) < REST_BELOW {
+                return None;
+            }
+            let goal = plan.goal;
+            if !worth_fetching(game, goal) {
+                memory.plan = None;
+                return None;
+            }
+            if game.player.pos == goal {
+                memory.plan = None;
+                return Some(Action::PickUp);
+            }
+            let step = step_to(game, |p| p == goal);
+            if step.is_none() {
+                give_up(memory);
+            }
+            step
+        }
+    }
+}
+
+/// Clears a plan that didn't reach its goal. An item that couldn't be
+/// fetched is not tried again on this floor.
+fn give_up(memory: &mut BotMemory) {
+    if let Some(plan) = memory.plan.take()
+        && plan.purpose == Purpose::Fetch
+    {
+        memory.gave_up_on.push(plan.goal);
     }
 }
 
@@ -904,6 +986,125 @@ mod tests {
             game.map.reveal(p);
         }
         (game, stairs)
+    }
+
+    fn drop_at(game: &mut Game, kind: ItemKind, pos: Point) {
+        game.items.push(crate::item::FloorItem {
+            pos,
+            item: Item::new(kind),
+        });
+    }
+
+    #[test]
+    fn it_fetches_a_nearby_item_before_heading_down() {
+        let (mut game, _) = room_with_stairs();
+        let ration = Point::new(4, 8);
+        drop_at(&mut game, ItemKind::Food(FoodKind::Ration), ration);
+        let mut memory = BotMemory::default();
+        for _ in 0..10 {
+            let action = next_action(&game, &mut memory);
+            if game.player.pos == ration {
+                assert_eq!(action, Action::PickUp);
+                game.apply(action);
+                assert!(game.item_at(ration).is_none());
+                // Then straight on down.
+                assert_eq!(next_action(&game, &mut memory), stairs_step(&game).unwrap());
+                return;
+            }
+            let Action::Move(d) = action else {
+                panic!("expected a step, got {action:?}");
+            };
+            game.player.pos = game.player.pos + d;
+            game.update_fov();
+        }
+        panic!("never reached the ration");
+    }
+
+    #[test]
+    fn items_out_of_reach_are_left_behind() {
+        let (mut game, _) = room_with_stairs();
+        game.player.pos = Point::new(18, 5);
+        game.update_fov();
+        drop_at(
+            &mut game,
+            ItemKind::Food(FoodKind::Ration),
+            Point::new(2, 5),
+        );
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0))
+        );
+        assert!(memory.plan.is_none());
+    }
+
+    #[test]
+    fn a_fetch_waits_while_a_monster_is_about() {
+        use crate::monster::Kind;
+        let (mut game, _) = room_with_stairs();
+        drop_at(
+            &mut game,
+            ItemKind::Food(FoodKind::Ration),
+            Point::new(2, 8),
+        );
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(0, 1))
+        );
+        let orc = hunter_at(&game, Kind::Orc, Point::new(5, 5));
+        game.monsters.push(orc);
+        game.update_fov();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0)),
+            "goes for the orc"
+        );
+        assert!(memory.plan.is_some(), "the fetch is kept for later");
+    }
+
+    /// Seed 1076 once stalled on a floor: a fleeing monkey at the edge
+    /// of view paused the fetch, the bot turned for the stairs, lost
+    /// sight of the monkey, resumed the fetch, and so on forever.
+    #[test]
+    fn a_fleeing_monster_does_not_pause_a_fetch() {
+        use crate::monster::Kind;
+        let (mut game, _) = room_with_stairs();
+        drop_at(
+            &mut game,
+            ItemKind::Food(FoodKind::Ration),
+            Point::new(2, 8),
+        );
+        game.monsters
+            .push(Monster::new(Kind::Monkey, Point::new(15, 2), Ai::Fleeing));
+        game.update_fov();
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(0, 1))
+        );
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(0, 1)),
+            "kept going for the ration"
+        );
+    }
+
+    #[test]
+    fn a_fetch_that_runs_out_of_turns_is_not_restarted() {
+        let (mut game, _) = room_with_stairs();
+        let ration = Point::new(2, 8);
+        drop_at(&mut game, ItemKind::Food(FoodKind::Ration), ration);
+        let mut memory = BotMemory::default();
+        next_action(&game, &mut memory);
+        memory.plan.as_mut().unwrap().turns_left = 0;
+        assert_eq!(
+            next_action(&game, &mut memory),
+            stairs_step(&game).unwrap(),
+            "gives up and heads down"
+        );
+        assert_eq!(memory.gave_up_on, vec![ration]);
+        assert!(memory.plan.is_none());
     }
 
     #[test]
