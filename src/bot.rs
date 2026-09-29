@@ -107,6 +107,15 @@ pub fn next_action(game: &Game) -> Action {
 /// or the nearest edge of the explored area. `None` once the floor is
 /// fully explored (or the rest is out of reach).
 pub fn explore_step(game: &Game) -> Option<Action> {
+    // The path search never counts the starting tile as a goal, so an
+    // item underfoot (say, left there when the pack was full) is
+    // handled here first.
+    if game
+        .item_at(game.player.pos)
+        .is_some_and(|fi| worth_picking_up(game, &fi.item))
+    {
+        return Some(Action::PickUp);
+    }
     let is_goal = |p: Point| {
         let wanted = game.map.is_revealed(p)
             && game
@@ -465,6 +474,19 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn exploring_picks_up_an_item_underfoot() {
+        use crate::item::{FloorItem, Item, PotionKind};
+        let mut game = Game::new(1);
+        game.monsters.clear();
+        let pos = game.player.pos;
+        let potion = Item::new(ItemKind::Potion(PotionKind::Healing));
+        game.items.push(FloorItem { pos, item: potion });
+        assert_eq!(explore_step(&game), Some(Action::PickUp));
+        game.apply(Action::PickUp);
+        assert!(game.item_at(pos).is_none());
     }
 
     #[test]
