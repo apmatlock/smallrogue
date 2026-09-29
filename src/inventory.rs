@@ -11,7 +11,7 @@ use crate::monster::Ai;
 use crate::player::{FOOD_MAX, RING_SLOTS};
 
 /// Health restored by a potion of healing.
-const HEALING: i32 = 15;
+pub(crate) const HEALING: i32 = 15;
 /// Maximum health gained from a potion of life.
 const LIFE: i32 = 5;
 /// Damage range of a potion of decay.

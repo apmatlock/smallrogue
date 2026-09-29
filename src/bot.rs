@@ -9,6 +9,7 @@
 
 use crate::game::{Action, Game};
 use crate::geom::Point;
+use crate::inventory::HEALING;
 use crate::item::{FoodKind, Item, ItemKind, PotionKind, ScrollKind};
 use crate::map::Tile;
 use crate::monster::{Ai, Monster};
@@ -50,21 +51,65 @@ pub fn next_action(game: &Game) -> Action {
         .filter(|m| m.pos.is_adjacent(pos))
         .collect();
 
-    // Emergencies first.
-    if hp <= HEAL_BELOW
-        && (!hunting.is_empty() || hp <= 25)
-        && let Some(letter) = known_item(game, ItemKind::Potion(PotionKind::Healing))
-    {
-        return Action::Drink(letter);
+    // Emergencies first. How bad could the next turn be? The worst
+    // hits of everything adjacent, plus fast hunters that can close in
+    // and strike this turn. A player can judge this from what the
+    // monsters are and how deep they are.
+    let danger: i32 = visible
+        .iter()
+        .filter(|m| {
+            let d = m.pos - pos;
+            let reach = d.x.abs().max(d.y.abs());
+            reach <= 1
+                || (reach == 2 && matches!(m.ai, Ai::Hunting { .. }) && m.species().speed > 100)
+        })
+        .map(|m| m.attack().damage.1)
+        .sum();
+    let hp_now = game.player.hp;
+    let could_die = danger > 0 && hp_now <= danger;
+    let threatened = !hunting.is_empty() || !adjacent.is_empty();
+    let hurt = hp <= HEAL_BELOW && (threatened || hp <= 25);
+    if could_die || hurt {
+        let potion = |kind| known_item(game, ItemKind::Potion(kind));
+        let teleport = known_item(game, ItemKind::Scroll(ScrollKind::Teleportation));
+        // Surrounded, or a healing potion won't cover the worst case:
+        // leave instead of prolonging a fight that can't be won.
+        let healing_falls_short = hp_now + HEALING <= danger;
+        if (adjacent.len() >= 2 || (could_die && healing_falls_short))
+            && let Some(letter) = teleport
+        {
+            return read(letter, None);
+        }
+        if let Some(letter) = potion(PotionKind::Healing) {
+            return Action::Drink(letter);
+        }
+        // A potion of life heals fully; it's saved for moments like this.
+        if let Some(letter) = potion(PotionKind::Life) {
+            return Action::Drink(letter);
+        }
+        if could_die && let Some(letter) = teleport {
+            return read(letter, None);
+        }
     }
-    if hp <= 30
+
+    // Last resort: badly hurt, cornered, and out of known healing and
+    // teleports. An unknown scroll might be teleportation.
+    if hp <= 20
         && !adjacent.is_empty()
-        && let Some(letter) = known_item(game, ItemKind::Scroll(ScrollKind::Teleportation))
+        && let Some(scroll) = game
+            .player
+            .inventory
+            .iter()
+            .find(|i| matches!(i.kind, ItemKind::Scroll(_)) && !game.lore.knows(i.kind))
     {
-        return Action::Read {
-            scroll: letter,
-            target: None,
-        };
+        return read_unknown(game, scroll.letter);
+    }
+
+    // On the stairs with trouble near: leave. Taking the stairs ends the
+    // turn on a new floor, so the monsters here get no parting blow.
+    let on_stairs = game.map.tile(pos) == Tile::StairsDown;
+    if on_stairs && (!adjacent.is_empty() || !hunting.is_empty()) {
+        return Action::Descend;
     }
 
     // Fight whatever is next to us, weakest-looking first.
@@ -90,6 +135,8 @@ pub fn next_action(game: &Game) -> Action {
     // Sleeping monsters are left alone: walking up to one can hide it
     // behind a corner, and a bot that only reacts to what it sees would
     // then step back and forth forever. Rest up in case it wakes.
+    // (Moving on instead, to avoid giving sleepers more chances to wake,
+    // measured worse: median depth 15 to 14 on the same 100 seeds.)
     if !asleep.is_empty() && hp < REST_NEAR_SLEEPERS && can_rest {
         return Action::Wait;
     }
@@ -437,7 +484,12 @@ fn use_items(game: &Game, hp: i32) -> Option<Action> {
         let letter = item.letter;
         let known = lore.knows(item.kind);
         match item.kind {
-            ItemKind::Potion(PotionKind::Strength | PotionKind::Life) if known => {
+            ItemKind::Potion(PotionKind::Strength) if known => {
+                return Some(Action::Drink(letter));
+            }
+            // Life is kept for emergencies, or used in a quiet moment
+            // when badly hurt.
+            ItemKind::Potion(PotionKind::Life) if known && hp <= 50 => {
                 return Some(Action::Drink(letter));
             }
             ItemKind::Potion(_) if !known && hp >= EXPERIMENT_ABOVE => {
@@ -456,20 +508,28 @@ fn use_items(game: &Game, hp: i32) -> Option<Action> {
                     return Some(read(letter, Some(target)));
                 }
             }
-            ItemKind::Scroll(_) if !known => {
-                // The target list is what the game would show on screen
-                // after starting to read, so choosing from it is fair.
-                let target = if game.scroll_needs_target(letter) {
-                    first_read_target(game, letter)
-                } else {
-                    None
-                };
-                return Some(read(letter, target));
+            // Unknown scrolls only with nothing at all in sight, sleeping
+            // monsters included: one might be aggravate monsters.
+            ItemKind::Scroll(_)
+                if !known && hp >= EXPERIMENT_ABOVE && visible_monsters(game).is_empty() =>
+            {
+                return Some(read_unknown(game, letter));
             }
             _ => {}
         }
     }
     None
+}
+
+/// Reads an unknown scroll. The target list is what the game would show
+/// on screen after starting to read, so choosing from it is fair.
+fn read_unknown(game: &Game, letter: char) -> Action {
+    let target = if game.scroll_needs_target(letter) {
+        first_read_target(game, letter)
+    } else {
+        None
+    };
+    read(letter, target)
 }
 
 fn read(scroll: char, target: Option<char>) -> Action {
@@ -680,6 +740,102 @@ mod tests {
         let watch = Watch::new(&game);
         game.trap_warning = Some(game.player.pos + Point::new(1, 0));
         assert!(watch.reason_to_stop(&game).is_some());
+    }
+
+    /// A bot in an empty 20x9 room at (2,5), with nothing else around.
+    fn quiet_room() -> Game {
+        let mut game = Game::new(1);
+        let mut map = crate::map::Map::new_filled(22, 11);
+        map.carve_room(1, 1, 20, 9);
+        game.place_on_map(map, Point::new(2, 5));
+        game.monsters.clear();
+        game.items.clear();
+        game.traps.clear();
+        game.update_fov();
+        game
+    }
+
+    fn hunter_at(game: &Game, kind: crate::monster::Kind, pos: Point) -> Monster {
+        Monster::new(
+            kind,
+            pos,
+            Ai::Hunting {
+                last_seen: game.player.pos,
+            },
+        )
+    }
+
+    #[test]
+    fn on_the_stairs_with_trouble_near_it_goes_down() {
+        let mut game = quiet_room();
+        game.map.set_tile(game.player.pos, Tile::StairsDown);
+        let orc = hunter_at(&game, crate::monster::Kind::Orc, Point::new(3, 5));
+        game.monsters.push(orc);
+        game.update_fov();
+        assert_eq!(next_action(&game), Action::Descend);
+    }
+
+    #[test]
+    fn surrounded_and_hurt_it_teleports_rather_than_drinks() {
+        use crate::item::Item;
+        use crate::monster::Kind;
+        let mut game = quiet_room();
+        for pos in [Point::new(3, 5), Point::new(2, 4)] {
+            let orc = hunter_at(&game, Kind::Orc, pos);
+            game.monsters.push(orc);
+        }
+        game.update_fov();
+        let teleport = ItemKind::Scroll(ScrollKind::Teleportation);
+        game.lore.learn(teleport);
+        let letter = game.player.add_item(Item::new(teleport)).unwrap();
+        game.player.hp = 8;
+        assert_eq!(
+            next_action(&game),
+            Action::Read {
+                scroll: letter,
+                target: None
+            }
+        );
+    }
+
+    #[test]
+    fn life_potions_are_saved_while_healthy() {
+        use crate::item::Item;
+        let mut game = quiet_room();
+        let life = ItemKind::Potion(PotionKind::Life);
+        game.lore.learn(life);
+        let letter = game.player.add_item(Item::new(life)).unwrap();
+        assert_ne!(next_action(&game), Action::Drink(letter));
+        game.player.hp = game.player.max_hp / 3;
+        assert_eq!(
+            next_action(&game),
+            Action::Drink(letter),
+            "used when badly hurt"
+        );
+    }
+
+    #[test]
+    fn unknown_scrolls_wait_until_nothing_is_in_sight() {
+        use crate::item::Item;
+        use crate::monster::Kind;
+        let mut game = quiet_room();
+        let kind = ItemKind::Scroll(ScrollKind::MagicMapping);
+        let letter = game.player.add_item(Item::new(kind)).unwrap();
+        // A sleeping rat within sight (6 tiles; sight reaches 8).
+        let rat = Monster::new(Kind::Rat, Point::new(8, 5), Ai::Asleep);
+        game.monsters.push(rat);
+        game.update_fov();
+        assert!(game.is_visible(Point::new(8, 5)));
+        assert!(!matches!(next_action(&game), Action::Read { .. }));
+        game.monsters.clear();
+        game.update_fov();
+        assert_eq!(
+            next_action(&game),
+            Action::Read {
+                scroll: letter,
+                target: None
+            }
+        );
     }
 
     #[test]

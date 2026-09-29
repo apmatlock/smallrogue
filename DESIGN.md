@@ -151,6 +151,16 @@ Built between milestones 7 and 8, at the user's request.
 - The bot chases only monsters that are hunting it and leaves sleeping ones alone. Reacting to monsters that pop in and out of view made it step back and forth forever.
 - Balance runs report runs that stall (no new floor for 5,000 turns) separately, to catch bot bugs.
 
+### Bot improvements, first batch
+
+After asking Codex how to make the bot more successful, four small changes that need no memory between turns were built and measured one at a time on the same 100 seeds, then confirmed on 200 fresh seeds (1001-1200).
+
+- **Kept: descend when threatened on the stairs.** Taking the stairs ends the turn on a new floor, so nothing gets a parting blow. Small gain in average depth.
+- **Rejected: stop resting near sleeping monsters.** Codex expected fewer wake-ups; the median dropped from 15 to 14, so the bot still rests.
+- **Kept: unknown scrolls only with nothing in sight,** so an aggravate scroll wakes the floor at a safer moment, and as a last-ditch gamble when cornered at 20% health or less. Median 15 to 16.
+- **Kept: danger-aware emergencies.** The bot adds up the worst hits of adjacent monsters and fast hunters two tiles away (known from each monster's kind and the depth). It teleports when surrounded or when a healing potion wouldn't cover a worst-case turn, drinks healing otherwise, and saves potions of life for emergencies or a quiet moment at half health.
+- **Fresh-seed result:** 80 runs deeper, 52 shallower, 68 unchanged; 178 deaths down to 174; median unchanged at 14. The larger gains Codex suggested (fighting from corridors, committed escapes, closing doors on pursuers, supply detours) need the bot to remember a plan between turns.
+
 ## Later, after v1
 
 - Save on quit
