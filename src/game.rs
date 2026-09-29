@@ -94,6 +94,13 @@ pub struct Game {
     /// action, because moving or opening a door changes it.
     visible: Grid<bool>,
     pub monsters: Vec<Monster>,
+    /// Which tiles hold a monster, rebuilt at the start of each monster
+    /// phase. Pathfinding asks this for every tile it considers, so a
+    /// grid lookup beats searching the monster list each time.
+    pub(crate) monster_grid: Grid<bool>,
+    /// Set when a monster opens a door, which can change what the
+    /// player sees, so the view is only recomputed when needed.
+    pub(crate) fov_dirty: bool,
     pub items: Vec<FloorItem>,
     /// What the player knows about items, and how unknown ones look.
     pub lore: Lore,
@@ -115,6 +122,8 @@ impl Game {
             seed,
             visible: Grid::new(1, 1, false),
             monsters: Vec::new(),
+            monster_grid: Grid::new(1, 1, false),
+            fov_dirty: false,
             items: Vec::new(),
             lore: Lore::new(&mut Rng::new(rng::mix(seed, 0x4C4F_5245))),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
@@ -158,19 +167,25 @@ impl Game {
         // because they are different fields.
         let map = &self.map;
         let visible = &mut self.visible;
+        // Note which tiles are newly seen while computing, so only those
+        // need revealing, rather than scanning the whole map afterwards.
+        let mut newly_seen = Vec::new();
         fov::compute(
             self.player.pos,
             self.player.sight_radius(),
             |p| map.tile(p).blocks_sight(),
-            |p| visible.set(p, true),
+            |p| {
+                visible.set(p, true);
+                if !map.is_revealed(p) {
+                    newly_seen.push(p);
+                }
+            },
         );
 
         let mut spotted_stairs = false;
-        for p in self.map.points() {
-            if self.is_visible(p) && !self.map.is_revealed(p) {
-                self.map.reveal(p);
-                spotted_stairs |= self.map.tile(p) == Tile::StairsDown;
-            }
+        for p in newly_seen {
+            self.map.reveal(p);
+            spotted_stairs |= self.map.tile(p) == Tile::StairsDown;
         }
         if spotted_stairs {
             self.log("You see a staircase leading down.");
@@ -214,7 +229,9 @@ impl Game {
         if outcome == Outcome::TookTurn {
             self.monsters_act();
             // Monsters may have opened doors, changing the view.
-            self.update_fov();
+            if std::mem::take(&mut self.fov_dirty) {
+                self.update_fov();
+            }
         }
     }
 

@@ -69,6 +69,42 @@ pub fn first_step(
     None
 }
 
+/// Like `first_step`, but heads for whichever tile satisfying
+/// `is_goal` is nearest. Used by auto-explore, which wants the closest
+/// unexplored spot rather than one fixed destination.
+pub fn first_step_to_any(
+    from: Point,
+    width: i32,
+    height: i32,
+    can_enter: impl Fn(Point) -> bool,
+    is_goal: impl Fn(Point) -> bool,
+) -> Option<Point> {
+    let mut came_from: Grid<Option<Point>> = Grid::new(width, height, None);
+    came_from.set(from, Some(from));
+    let mut queue = VecDeque::from([from]);
+
+    while let Some(p) = queue.pop_front() {
+        if p != from && is_goal(p) {
+            let mut step = p;
+            loop {
+                let prev = came_from.get(step).copied().flatten()?;
+                if prev == from {
+                    return Some(step);
+                }
+                step = prev;
+            }
+        }
+        for d in STEPS {
+            let n = p + d;
+            if came_from.get(n) == Some(&None) && can_enter(n) {
+                came_from.set(n, Some(p));
+                queue.push_back(n);
+            }
+        }
+    }
+    None
+}
+
 /// Every tile reachable from `from` (not counting `from` itself),
 /// walking only through tiles where `can_enter` is true.
 pub fn reachable(
@@ -118,6 +154,16 @@ mod tests {
         let tiles = reachable(Point::new(0, 0), 5, 5, |p| p.x < 2);
         assert_eq!(tiles.len(), 9); // a 2x5 strip, minus the start
         assert!(tiles.iter().all(|p| p.x < 2));
+    }
+
+    #[test]
+    fn heads_for_the_nearest_goal() {
+        // Goals at x = 4 and x = 1 on the same row; x = 1 is nearer.
+        let goal = |p: Point| p.y == 0 && (p.x == 4 || p.x == 1);
+        let step = first_step_to_any(Point::new(2, 0), 5, 5, |_| true, goal);
+        assert_eq!(step, Some(Point::new(1, 0)));
+        let none = first_step_to_any(Point::new(2, 0), 5, 5, |_| true, |_| false);
+        assert_eq!(none, None);
     }
 
     #[test]

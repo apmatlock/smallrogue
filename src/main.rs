@@ -16,15 +16,21 @@
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
 //! - `ai`      — what monsters do on their turn
+//! - `bot`     — a bot player, auto-explore and travel
+//! - `sim`     — headless bot runs for balance testing
+//! - `cli`     — command-line options
 //! - `game`    — game state and rules (no terminal code)
 //! - `frame`   — a backend-independent screen picture
 //! - `ui`      — lays out the game into a frame
 //! - `input`   — keys to commands
 //! - `term`    — draws frames to the terminal
 //!
-//! Run with `cargo run -- --seed 1234` to replay a specific dungeon.
+//! Run with `cargo run -- --seed 1234` to replay a specific dungeon,
+//! `--bot` to watch the bot play, or `--simulate 200` for balance runs.
 
 mod ai;
+mod bot;
+mod cli;
 mod combat;
 mod dungeon;
 mod fov;
@@ -42,16 +48,17 @@ mod monster;
 mod path;
 mod player;
 mod rng;
+mod sim;
 mod term;
 mod text;
 mod ui;
 
 use std::io;
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use game::{Action, Game};
-use input::{Command, Verb};
+use input::{Command, Polled, Verb};
 use item::{Item, ItemKind};
 use menu::Line;
 use term::Terminal;
@@ -59,15 +66,25 @@ use term::Terminal;
 fn main() -> ExitCode {
     // Handle arguments before touching the terminal, so errors print
     // normally.
-    let seed = match seed_from_args() {
-        Ok(seed) => seed,
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let options = match cli::parse(&args) {
+        Ok(options) => options,
         Err(msg) => {
             eprintln!("{msg}");
             return ExitCode::from(2);
         }
     };
 
-    match run(seed) {
+    let result = match options.simulate {
+        Some(runs) => {
+            if let Some(dir) = options.csv.parent().filter(|d| !d.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            sim::simulate(runs, options.seed.unwrap_or(1), &options.csv)
+        }
+        None => run(options.seed.unwrap_or_else(clock_seed), options.bot),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
@@ -76,19 +93,86 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(seed: u64) -> io::Result<()> {
+/// Delay between bot moves at each speed setting, slowest first.
+const BOT_SPEEDS_MS: [u64; 7] = [500, 250, 120, 60, 25, 8, 0];
+
+/// The bot's settings while it is playing.
+struct Autoplay {
+    speed: usize,
+    paused: bool,
+    /// Bot actions in a row that used no time. A safety net: if the bot
+    /// ever keeps choosing something the game refuses, it stops rather
+    /// than spinning forever.
+    idle: u32,
+}
+
+impl Autoplay {
+    fn new() -> Self {
+        Self {
+            speed: 2,
+            paused: false,
+            idle: 0,
+        }
+    }
+
+    fn status(&self) -> String {
+        if self.paused {
+            "BOT paused".to_string()
+        } else {
+            format!("BOT speed {}/{}", self.speed + 1, BOT_SPEEDS_MS.len())
+        }
+    }
+}
+
+fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
     let mut terminal = Terminal::new()?;
     let mut game = Game::new(seed);
+    let mut autoplay = None;
+    if start_with_bot {
+        start_bot(&mut game, &mut autoplay);
+    }
 
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
-        draw(&mut terminal, &game)?;
+        let status = autoplay.as_ref().map(Autoplay::status);
+        draw_with_status(&mut terminal, &game, status.as_deref())?;
 
         if game.death.is_some() {
             let (w, h) = terminal.size()?;
             terminal.present(ui::draw_death(&game, w, h))?;
             input::wait_for_any_key()?;
             break;
+        }
+
+        if let Some(bot) = autoplay.as_mut() {
+            // Paused: wait as long as it takes for a key.
+            let wait = if bot.paused {
+                Duration::from_secs(3600)
+            } else {
+                Duration::from_millis(BOT_SPEEDS_MS[bot.speed])
+            };
+            match input::poll_key(wait)? {
+                Polled::Nothing if !bot.paused => {
+                    let turn = game.turn;
+                    game.apply(bot::next_action(&game));
+                    bot.idle = if game.turn == turn { bot.idle + 1 } else { 0 };
+                    if bot.idle >= 20 {
+                        autoplay = None;
+                        game.log("The bot seems stuck, so you take back control.");
+                    }
+                }
+                Polled::Nothing => {}
+                Polled::Key(Some('+' | '=')) => {
+                    bot.speed = (bot.speed + 1).min(BOT_SPEEDS_MS.len() - 1)
+                }
+                Polled::Key(Some('-')) => bot.speed = bot.speed.saturating_sub(1),
+                Polled::Key(Some(' ')) => bot.paused = !bot.paused,
+                Polled::Key(_) => {
+                    autoplay = None;
+                    game.log("You take back control.");
+                }
+            }
+            continue;
         }
 
         match input::next_command()? {
@@ -99,6 +183,13 @@ fn run(seed: u64) -> io::Result<()> {
             Command::Help => {
                 show_box(&mut terminal, &game, "Keys", &ui::help_lines())?;
             }
+            Command::Descend => descend_or_travel(&mut terminal, &mut game)?,
+            Command::Explore => {
+                if auto_move(&mut terminal, &mut game, bot::explore_step)? {
+                    game.log("There is nothing left to explore here.");
+                }
+            }
+            Command::ToggleBot => start_bot(&mut game, &mut autoplay),
             Command::Redraw => {}
             Command::Quit => {
                 if confirm_quit(&mut terminal, &mut game)? {
@@ -108,6 +199,75 @@ fn run(seed: u64) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn start_bot(game: &mut Game, autoplay: &mut Option<Autoplay>) {
+    *autoplay = Some(Autoplay::new());
+    game.log("The bot takes over. Space pauses, + and - set speed, Esc or B stops it.");
+}
+
+/// Repeats automatic steps (exploring, or walking to the stairs) until
+/// there are none left, something happens that needs the player, or a
+/// key is pressed. Returns true if it ran out of steps normally.
+fn auto_move(
+    terminal: &mut Terminal,
+    game: &mut Game,
+    step: fn(&Game) -> Option<Action>,
+) -> io::Result<bool> {
+    if let Some(reason) = bot::auto_blocked(game) {
+        game.log(&reason);
+        return Ok(false);
+    }
+    // A generous cap, in case something unforeseen keeps it going.
+    for _ in 0..2_000 {
+        let Some(action) = step(game) else {
+            return Ok(true);
+        };
+        let watch = bot::Watch::new(game);
+        game.apply(action);
+        if let Some(reason) = watch.reason_to_stop(game) {
+            if !reason.is_empty() {
+                game.log(&reason);
+            }
+            return Ok(false);
+        }
+        draw(terminal, game)?;
+        // A short pause makes the walk visible, and any key stops it.
+        if input::poll_key(Duration::from_millis(12))? != Polled::Nothing {
+            return Ok(false);
+        }
+    }
+    Ok(false)
+}
+
+/// `>`: descend when on the stairs; otherwise walk to them if seen.
+fn descend_or_travel(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
+    let on_stairs = game.map.tile(game.player.pos) == map::Tile::StairsDown;
+    let stairs_seen = game
+        .map
+        .points()
+        .any(|p| game.map.is_revealed(p) && game.map.tile(p) == map::Tile::StairsDown);
+    if on_stairs || !stairs_seen {
+        game.apply(Action::Descend);
+        return Ok(());
+    }
+    if auto_move(terminal, game, bot::stairs_step)? {
+        if game.map.tile(game.player.pos) == map::Tile::StairsDown {
+            game.log("You reach the stairs. Press > again to descend.");
+        } else {
+            game.log("You can't find a way to the stairs.");
+        }
+    }
+    Ok(())
+}
+
+fn draw_with_status(terminal: &mut Terminal, game: &Game, status: Option<&str>) -> io::Result<()> {
+    let (w, h) = terminal.size()?;
+    let mut frame = ui::draw(game, w, h);
+    if let Some(text) = status {
+        ui::draw_status(&mut frame, text);
+    }
+    terminal.present(frame)
 }
 
 fn draw(terminal: &mut Terminal, game: &Game) -> io::Result<()> {
@@ -306,22 +466,12 @@ fn close_door(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads `--seed N` from the command line, or picks a seed from the
-/// clock. Seeds from the clock stay under a billion so they are short
-/// enough to read off the screen and type back in.
-fn seed_from_args() -> Result<u64, String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            Ok((nanos % 1_000_000_000) as u64)
-        }
-        [flag, value] if flag == "--seed" => value
-            .parse()
-            .map_err(|_| format!("invalid seed '{value}': expected a whole number")),
-        _ => Err("usage: smallrogue [--seed N]".to_string()),
-    }
+/// A seed from the clock, kept under a billion so it's short enough to
+/// read off the screen and type back in.
+fn clock_seed() -> u64 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    (nanos % 1_000_000_000) as u64
 }

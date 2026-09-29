@@ -107,6 +107,18 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |
 | 11 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
 
+### Added along the way: bot and auto modes
+
+Built between milestones 7 and 8, at the user's request.
+
+- **Auto-explore (`x`)** walks to the nearest unexplored area or item, stopping when a monster appears, the player is hurt, or an item is picked up.
+- **Travel (`>`)** walks to seen stairs when not standing on them.
+- **Watchable bot (`--bot` or `B`)** plays on screen with adjustable speed, pause, and a key to take over.
+- **Headless balance runs (`--simulate N`)** play N seeded games and print depth, turns and causes of death, plus a CSV.
+- The bot plays like a careful beginner and only uses information a player could have. It prioritizes descending: once the stairs are known and reachable it heads down, and explores only while it hasn't found them.
+- The bot chases only monsters that are hunting it and leaves sleeping ones alone. Reacting to monsters that pop in and out of view made it step back and forth forever.
+- Balance runs report runs that stall (no new floor for 5,000 turns) separately, to catch bot bugs.
+
 ## Later, after v1
 
 - Save on quit

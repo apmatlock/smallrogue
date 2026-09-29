@@ -23,6 +23,12 @@ pub enum Command {
     Use(Verb),
     Inventory,
     Help,
+    /// Descend, or walk to the stairs if they're elsewhere.
+    Descend,
+    /// Auto-explore until something needs attention.
+    Explore,
+    /// Hand the game to the bot, or take it back.
+    ToggleBot,
     /// Close a door. Needs a direction if several doors are adjacent,
     /// which the main loop sorts out.
     Close,
@@ -81,6 +87,35 @@ pub fn next_menu_key() -> io::Result<Option<char>> {
     }
 }
 
+/// What `poll_key` saw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Polled {
+    /// No key within the time allowed.
+    Nothing,
+    /// A key: its character, or `None` for Escape and other keys.
+    Key(Option<char>),
+}
+
+/// Waits up to `timeout` for a key, without blocking longer. Used while
+/// the bot plays or auto-explore runs, so a key press can interrupt.
+pub fn poll_key(timeout: std::time::Duration) -> io::Result<Polled> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if !event::poll(left)? {
+            return Ok(Polled::Nothing);
+        }
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            return Ok(Polled::Key(match key.code {
+                KeyCode::Char(c) if !has_ctrl_or_alt(key) => Some(c),
+                _ => None,
+            }));
+        }
+    }
+}
+
 /// Waits for any key, after a short pause that swallows keys already
 /// pressed. Without the pause, a player hammering a direction key in a
 /// fight would skip the death screen before reading it.
@@ -119,7 +154,9 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         // Capital Q, so a slip of the finger can't end a run.
         KeyCode::Char('Q') => Some(Command::Quit),
         KeyCode::Char('.') => Some(Command::Act(Action::Wait)),
-        KeyCode::Char('>') => Some(Command::Act(Action::Descend)),
+        KeyCode::Char('>') => Some(Command::Descend),
+        KeyCode::Char('x') => Some(Command::Explore),
+        KeyCode::Char('B') => Some(Command::ToggleBot),
         KeyCode::Char('c') => Some(Command::Close),
         KeyCode::Char('g' | ',') => Some(Command::Act(Action::PickUp)),
         KeyCode::Char('i') => Some(Command::Inventory),

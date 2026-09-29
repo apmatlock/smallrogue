@@ -72,6 +72,15 @@ fn map_area(width: u16, height: u16) -> (i32, i32) {
     (view_w, view_h)
 }
 
+/// Writes a short status, like "bot playing", in the sidebar's empty
+/// second row.
+pub fn draw_status(frame: &mut Frame, text: &str) {
+    if frame.width >= MIN_WIDTH && frame.height >= MIN_HEIGHT {
+        let (view_w, _) = map_area(frame.width, frame.height);
+        frame.print(view_w + 2, 1, text, GOOD);
+    }
+}
+
 /// The normal game screen with a pop-up box over the map, showing
 /// `page` of the box's lines. Also returns how many pages there are.
 pub fn draw_with_box(
@@ -141,7 +150,8 @@ pub fn help_lines() -> Vec<Line> {
         "arrows or hjkl   move, or attack by moving into",
         "yubn             move diagonally",
         ".                wait a turn",
-        ">                descend stairs",
+        ">                descend, or walk to seen stairs",
+        "x                explore until something happens",
         "c                close a door",
         "g                pick up (walking over also works)",
         "i                inventory",
@@ -150,6 +160,7 @@ pub fn help_lines() -> Vec<Line> {
         "q                drink a potion",
         "r                read a scroll",
         "?                this help",
+        "B                let the bot play (B again stops it)",
         "Q                quit (ends the run)",
     ]
     .into_iter()

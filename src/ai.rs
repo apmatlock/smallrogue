@@ -5,6 +5,7 @@
 
 use crate::game::Game;
 use crate::geom::Point;
+use crate::grid::Grid;
 use crate::map::Tile;
 use crate::monster::{ACTION_COST, Ai};
 use crate::path;
@@ -17,6 +18,17 @@ impl Game {
     /// Gives every monster its energy for this turn and lets it act as
     /// many times as that energy allows.
     pub(crate) fn monsters_act(&mut self) {
+        // Reuse the grid's memory unless the floor size changed.
+        if self.monster_grid.width() == self.map.width()
+            && self.monster_grid.height() == self.map.height()
+        {
+            self.monster_grid.fill(false);
+        } else {
+            self.monster_grid = Grid::new(self.map.width(), self.map.height(), false);
+        }
+        for m in &self.monsters {
+            self.monster_grid.set(m.pos, true);
+        }
         // Loop by index, not by iterator: each monster's turn needs to
         // read the others (to avoid walking into them), which a
         // mutable iterator over the Vec would not allow.
@@ -121,7 +133,8 @@ impl Game {
             let passable = tile.is_walkable() || (opens_doors && tile == Tile::DoorClosed);
             // Other creatures block the way, except that the player's
             // tile is allowed as the goal so hunters can path to them.
-            let occupied = (p != goal && p == self.player.pos) || self.monster_at(p).is_some();
+            let has_monster = self.monster_grid.get(p) == Some(&true);
+            let occupied = (p != goal && p == self.player.pos) || has_monster;
             passable && !occupied
         };
         path::first_step(me.pos, goal, self.map.width(), self.map.height(), can_enter)
@@ -135,10 +148,13 @@ impl Game {
             }
             // Opening a door uses the monster's action.
             self.map.set_tile(step, Tile::DoorOpen);
+            self.fov_dirty = true;
             if self.is_visible(step) {
                 self.log(&format!("The {name} opens a door."));
             }
-        } else if step != self.player.pos && self.monster_at(step).is_none() {
+        } else if step != self.player.pos && self.monster_grid.get(step) == Some(&false) {
+            self.monster_grid.set(self.monsters[i].pos, false);
+            self.monster_grid.set(step, true);
             self.monsters[i].pos = step;
         }
     }

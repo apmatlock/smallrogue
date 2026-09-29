@@ -54,6 +54,10 @@ impl Map {
         }
     }
 
+    pub fn in_bounds(&self, p: Point) -> bool {
+        self.tiles.in_bounds(p)
+    }
+
     pub fn width(&self) -> i32 {
         self.tiles.width()
     }

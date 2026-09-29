@@ -31,6 +31,26 @@ cargo run --release -- --seed 1234
 
 Each floor's layout, monsters and items come from the run seed and the floor's depth, so a floor is the same no matter how you got there. Seeds may produce different dungeons after the generator changes.
 
+### Let the bot play
+
+A built-in bot can play for you. It dives: once it has seen the stairs it heads down, exploring only until it finds them. Along the way it fights what hunts it, swaps in better gear, and experiments with unknown potions and scrolls, using only what a player could see and know.
+
+```sh
+cargo run -- --bot
+```
+
+While it plays, `+` and `-` change its speed, space pauses it, and Escape or `B` hands control back to you. Press `B` during a normal game to let it take over from where you are.
+
+### Balance runs
+
+The bot can also play many games without drawing anything and report how they went:
+
+```sh
+cargo run --release -- --simulate 200
+```
+
+This plays seeds 1 to 200 and prints the average, median and best depth reached, turns survived, a chart of depths, and the most common causes of death. It also saves one row per run to `target/sim.csv`. Use `--seed N` to start from a different seed and `--csv FILE` to save elsewhere. Use the `--release` build: it runs many times faster.
+
 ## Controls
 
 | Key | Action |
@@ -40,7 +60,8 @@ Each floor's layout, monsters and items come from the run seed and the floor's d
 | Move into a monster | Attack it |
 | Move into a closed door | Open it |
 | `.` | Wait one turn |
-| `>` | Descend while standing on stairs |
+| `>` | Descend while standing on stairs; otherwise walk to stairs you have seen |
+| `x` | Explore: walk to unexplored areas and pick up items until something happens |
 | `c` | Close an adjacent open door; choose a direction if several are nearby |
 | `g` or `,` | Pick up an item (walking over an item also picks it up) |
 | `i` | Open your pack; press an item's letter for details and actions |
@@ -49,9 +70,12 @@ Each floor's layout, monsters and items come from the run seed and the floor's d
 | `q` | Drink a potion |
 | `r` | Read a scroll |
 | `?` | Show all keys |
+| `B` | Let the bot play; `B` or Escape takes control back |
 | `Q` | Quit, after confirming with `y`. Quitting ends the run. |
 
 In lists that don't fit on screen, press space or `>` for the next page and `<` for the previous one. Escape closes any list.
+
+Exploring and walking to the stairs stop as soon as a monster comes into view, you get hurt, or you pick something up. Any key stops them early.
 
 Moving, attacking, waiting, opening or closing a door, descending, and using an item each take a turn. Failed actions, such as walking into a wall, do not.
 
@@ -113,7 +137,8 @@ The code uses plain structs and grids, with game rules kept separate from termin
 
 | Module | Responsibility |
 | --- | --- |
-| `main` | Startup, command-line seed, game loop, and menus |
+| `main`, `cli` | Startup, command-line options, game loop, and menus |
+| `bot`, `sim` | The bot player, auto-explore and travel; headless balance runs |
 | `game` | Game state, player actions, turns, and the message log |
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
