@@ -168,9 +168,12 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
         return Action::Descend;
     }
 
-    // Follow through on an escape, or decide to start one.
-    if memory.plan.is_none() {
-        memory.plan = consider_escape(game, &hunting, hp);
+    // Follow through on an escape, or decide to start one. A fetch is
+    // only a detour, so an escape can cut it short.
+    if memory.plan.is_none_or(|p| p.purpose == Purpose::Fetch)
+        && let Some(escape) = consider_escape(game, &hunting, hp)
+    {
+        memory.plan = Some(escape);
     }
     if let Some(action) = follow_plan(game, memory) {
         return action;
@@ -1105,6 +1108,31 @@ mod tests {
         );
         assert_eq!(memory.gave_up_on, vec![ration]);
         assert!(memory.plan.is_none());
+    }
+
+    #[test]
+    fn an_escape_cuts_a_fetch_short() {
+        use crate::monster::Kind;
+        let (mut game, _) = room_with_stairs();
+        drop_at(
+            &mut game,
+            ItemKind::Food(FoodKind::Ration),
+            Point::new(2, 8),
+        );
+        let mut memory = BotMemory::default();
+        next_action(&game, &mut memory);
+        assert_eq!(memory.plan.unwrap().purpose, Purpose::Fetch);
+        // A fight goes badly: time to leave, ration or not.
+        let orc = hunter_at(&game, Kind::Orc, Point::new(1, 5)); // speed 100
+        game.monsters.push(orc);
+        game.update_fov();
+        game.player.hp = game.player.max_hp / 3;
+        game.player.inventory.retain(|i| i.equipped);
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0))
+        );
+        assert_eq!(memory.plan.unwrap().purpose, Purpose::Escape);
     }
 
     #[test]
