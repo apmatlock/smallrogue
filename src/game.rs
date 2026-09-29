@@ -15,6 +15,7 @@ use crate::map::{Map, Tile};
 use crate::monster::{self, Ai, Monster};
 use crate::player::Player;
 use crate::rng::{self, Rng};
+use crate::skills::{self, Attribute, Skill};
 use crate::text::article;
 
 /// Turns an unknown item must be worn before revealing its enchantment,
@@ -353,6 +354,7 @@ impl Game {
     /// The player attacks monster `i`. Any attack, hit or miss, alerts
     /// the monster.
     fn player_attack(&mut self, i: usize) {
+        self.train(Skill::Melee, 1);
         let name = self.monsters[i].name();
         let defense = self.monsters[i].defense();
         match combat::resolve(&mut self.rng, self.player.attack(), defense) {
@@ -360,8 +362,9 @@ impl Game {
             Some(damage) => {
                 self.monsters[i].hp -= damage;
                 if self.monsters[i].hp <= 0 {
-                    self.monsters.remove(i);
+                    let xp = self.monsters.remove(i).species().xp;
                     self.log_as(&format!("You kill the {name}!"), MsgKind::Good);
+                    self.gain_xp(xp);
                     return;
                 }
                 self.log(&format!("You hit the {name} for {damage}."));
@@ -374,6 +377,8 @@ impl Game {
 
     /// Monster `i` attacks the player.
     pub(crate) fn monster_attack(&mut self, i: usize) {
+        // Being attacked trains dodging, hit or miss.
+        self.train(Skill::Dodge, 1);
         let m = &self.monsters[i];
         let (name, verb) = (m.name(), m.species().verb);
         match combat::resolve(&mut self.rng, m.attack(), self.player.defense()) {
@@ -384,10 +389,54 @@ impl Game {
                     &format!("The {name} {verb} you for {damage}."),
                     MsgKind::Bad,
                 );
+                if self.player.armor().is_some() {
+                    self.train(Skill::Armor, 1);
+                }
                 if self.player.hp <= 0 {
                     self.kill_player(&format!("{} {name}", article(name)));
                 }
             }
+        }
+    }
+
+    /// Adds skill training, announcing any new skill level.
+    pub(crate) fn train(&mut self, skill: Skill, amount: u32) {
+        if let Some(level) = self.player.skills.train(skill, amount) {
+            self.log_as(
+                &format!("Your {} skill improves to {level}.", skill.name()),
+                MsgKind::Good,
+            );
+        }
+    }
+
+    /// Adds experience, raising the character's level as often as it
+    /// reaches the next threshold.
+    pub(crate) fn gain_xp(&mut self, amount: u32) {
+        self.player.xp += amount;
+        while self.player.xp >= skills::xp_for_level(self.player.level + 1) {
+            let p = &mut self.player;
+            p.level += 1;
+            p.max_hp += skills::HEALTH_PER_LEVEL;
+            p.hp += skills::HEALTH_PER_LEVEL;
+            let (name, value) = match skills::attribute_for_level(p.level) {
+                Attribute::Strength => {
+                    p.strength += 1;
+                    ("strength", p.strength)
+                }
+                Attribute::Agility => {
+                    p.agility += 1;
+                    ("agility", p.agility)
+                }
+                Attribute::Intellect => {
+                    p.intellect += 1;
+                    ("intellect", p.intellect)
+                }
+            };
+            let level = p.level;
+            self.log_as(
+                &format!("You reach level {level}! Your {name} rises to {value}."),
+                MsgKind::Good,
+            );
         }
     }
 

@@ -41,6 +41,8 @@ pub struct Species {
     pub armor: i32,
     /// How its attack reads in the log: "The rat bites you."
     pub verb: &'static str,
+    /// Experience for killing one.
+    pub xp: u32,
 }
 
 impl Kind {
@@ -62,6 +64,7 @@ impl Kind {
                 damage: (1, 3),
                 armor: 0,
                 verb: "bites",
+                xp: 2,
             },
             Kind::Jackal => &Species {
                 name: "jackal",
@@ -77,6 +80,7 @@ impl Kind {
                 damage: (1, 3),
                 armor: 0,
                 verb: "bites",
+                xp: 3,
             },
             Kind::Goblin => &Species {
                 name: "goblin",
@@ -92,6 +96,7 @@ impl Kind {
                 damage: (2, 5),
                 armor: 1,
                 verb: "hits",
+                xp: 6,
             },
             Kind::Zombie => &Species {
                 name: "zombie",
@@ -107,6 +112,7 @@ impl Kind {
                 damage: (3, 6),
                 armor: 1,
                 verb: "claws",
+                xp: 8,
             },
         }
     }

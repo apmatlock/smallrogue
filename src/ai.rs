@@ -9,10 +9,14 @@ use crate::grid::Grid;
 use crate::map::Tile;
 use crate::monster::{ACTION_COST, Ai};
 use crate::path;
+use crate::skills::Skill;
 
 /// Chance per turn that a sleeping monster that can see the player
-/// wakes up. The stealth skill will lower this in milestone 8.
+/// wakes up, before the player's stealth is counted.
 const WAKE_PERCENT: i32 = 25;
+
+/// Each level of stealth takes this much off the chance to wake.
+const STEALTH_PER_LEVEL: i32 = 2;
 
 impl Game {
     /// Gives every monster its energy for this turn and lets it act as
@@ -61,14 +65,22 @@ impl Game {
         let visible = self.is_visible(self.monsters[i].pos);
 
         // First update what the monster is doing.
+        let wake = (WAKE_PERCENT - STEALTH_PER_LEVEL * self.player.skill(Skill::Stealth)).max(5);
         let ai = match self.monsters[i].ai {
-            Ai::Asleep if sees && self.rng.chance(WAKE_PERCENT) => {
+            Ai::Asleep if sees && self.rng.chance(wake) => {
                 self.log(&format!("The {name} wakes up!"));
                 Ai::Hunting {
                     last_seen: self.player.pos,
                 }
             }
-            Ai::Asleep => return,
+            Ai::Asleep => {
+                // It could see the player and didn't wake: sneaking
+                // past trains stealth.
+                if sees {
+                    self.train(Skill::Stealth, 1);
+                }
+                return;
+            }
             Ai::Wandering { .. } if sees => {
                 self.log(&format!("The {name} notices you!"));
                 Ai::Hunting {

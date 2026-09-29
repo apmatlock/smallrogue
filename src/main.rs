@@ -9,6 +9,7 @@
 //! - `dungeon` — random floor generation
 //! - `player`  — the player character's stats
 //! - `combat`  — rolling attacks and damage
+//! - `skills`  — skills that improve by use; levels from experience
 //! - `item`    — item kinds, their data, and spawning
 //! - `inventory` — picking up, equipping and using items
 //! - `lore`    — what the player knows about items; item names
@@ -49,6 +50,7 @@ mod path;
 mod player;
 mod rng;
 mod sim;
+mod skills;
 mod term;
 mod text;
 mod ui;
@@ -182,6 +184,14 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
             Command::Inventory => show_inventory(&mut terminal, &mut game)?,
             Command::Help => {
                 show_box(&mut terminal, &game, "Keys", &ui::help_lines())?;
+            }
+            Command::Character => {
+                show_box(
+                    &mut terminal,
+                    &game,
+                    "Character",
+                    &ui::character_lines(&game),
+                )?;
             }
             Command::Descend => descend_or_travel(&mut terminal, &mut game)?,
             Command::Explore => {

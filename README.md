@@ -2,7 +2,7 @@
 
 A grim, fast, endless dungeon crawler for the terminal, written in Rust. Descend through randomly generated rooms and corridors, fight what lives there, and use what you find. There is no bottom: how deep you get is your score.
 
-The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, items with an inventory, and item identification all work. Character growth, hunger, traps, themed zones and high scores are still to come.
+The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, items with an inventory, item identification, and character growth all work. Hunger, traps, themed zones and high scores are still to come.
 
 ## Build and run
 
@@ -65,6 +65,7 @@ This plays seeds 1 to 200 and prints the average, median and best depth reached,
 | `c` | Close an adjacent open door; choose a direction if several are nearby |
 | `g` or `,` | Pick up an item (walking over an item also picks it up) |
 | `i` | Open your pack; press an item's letter for details and actions |
+| `C` | Character sheet: level, experience, attributes, combat numbers and skills |
 | `e` | Equip or remove a weapon, armor or ring |
 | `d` | Drop an item |
 | `q` | Drink a potion |
@@ -108,6 +109,8 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 **Your character** is a fighter with Strength, Agility and Intellect. Strength adds damage, and Agility sets accuracy and dodge. You start with a sword, leather armor and a potion of healing.
 
+**Growth.** Kills give experience. Each new level adds 4 maximum health and raises an attribute, cycling strength, agility, strength, agility, intellect. Skills improve separately, simply by doing things: attacking trains **melee** (accuracy, then damage), being attacked trains **dodge**, being hit while armored trains **armor** (protection, and less penalty from heavy armor), and slipping past sleeping monsters trains **stealth** (they are less likely to wake). Early skill levels come quickly.
+
 **Items** are scattered on every floor.
 
 - Weapons: dagger, sword, mace and battle axe. Lighter weapons hit more often; heavier ones hit harder.
@@ -142,6 +145,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `game` | Game state, player actions, turns, and the message log |
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
+| `skills` | Skills that improve by use, experience and levels |
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
 | `lore` | Per-run item appearances, what the player has identified, and item names |
 | `monster`, `ai`, `path` | Monster definitions, spawning, behavior, and pathfinding |

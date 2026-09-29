@@ -22,6 +22,7 @@ pub enum Command {
     /// Choose an item, then do this with it.
     Use(Verb),
     Inventory,
+    Character,
     Help,
     /// Descend, or walk to the stairs if they're elsewhere.
     Descend,
@@ -160,6 +161,7 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         KeyCode::Char('c') => Some(Command::Close),
         KeyCode::Char('g' | ',') => Some(Command::Act(Action::PickUp)),
         KeyCode::Char('i') => Some(Command::Inventory),
+        KeyCode::Char('C') => Some(Command::Character),
         KeyCode::Char('d') => Some(Command::Use(Verb::Drop)),
         KeyCode::Char('e') => Some(Command::Use(Verb::Equip)),
         KeyCode::Char('q') => Some(Command::Use(Verb::Drink)),

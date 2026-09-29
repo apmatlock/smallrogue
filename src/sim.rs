@@ -39,6 +39,8 @@ pub struct RunResult {
     pub seed: u64,
     pub depth: u32,
     pub turns: u64,
+    /// The character level reached.
+    pub level: u32,
     pub ending: Ending,
     /// What killed the bot, e.g. "a jackal". Empty unless it died.
     pub killer: String,
@@ -72,6 +74,7 @@ pub fn play(seed: u64, max_turns: u64) -> RunResult {
         seed,
         depth: game.depth,
         turns: game.turn,
+        level: game.player.level,
         ending,
         killer: game.death.clone().unwrap_or_default(),
     }
@@ -101,7 +104,7 @@ pub fn simulate(runs: u64, first_seed: u64, csv_path: &Path) -> io::Result<()> {
 }
 
 pub fn to_csv(results: &[RunResult]) -> String {
-    let mut csv = String::from("seed,depth,turns,ending,killer\n");
+    let mut csv = String::from("seed,depth,turns,level,ending,killer\n");
     for r in results {
         let ending = match r.ending {
             Ending::Died => "died",
@@ -114,8 +117,8 @@ pub fn to_csv(results: &[RunResult]) -> String {
         let killer = r.killer.replace('"', "\"\"");
         let _ = writeln!(
             csv,
-            "{},{},{},{ending},\"{killer}\"",
-            r.seed, r.depth, r.turns
+            "{},{},{},{},{ending},\"{killer}\"",
+            r.seed, r.depth, r.turns, r.level
         );
     }
     csv
@@ -182,6 +185,7 @@ mod tests {
             seed,
             depth,
             turns: 100 * depth as u64,
+            level: depth,
             ending,
             killer: killer.to_string(),
         }
@@ -192,7 +196,7 @@ mod tests {
         let csv = to_csv(&[result(7, 3, Ending::Died, "a goblin")]);
         assert_eq!(
             csv,
-            "seed,depth,turns,ending,killer\n7,3,300,died,\"a goblin\"\n"
+            "seed,depth,turns,level,ending,killer\n7,3,300,3,died,\"a goblin\"\n"
         );
     }
 

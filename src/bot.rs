@@ -8,7 +8,7 @@
 //! plays on its own (on screen or headless for balance testing).
 
 use crate::game::{Action, Game};
-use crate::geom::{DIRECTIONS_8, Point};
+use crate::geom::Point;
 use crate::item::{Item, ItemKind, PotionKind, ScrollKind};
 use crate::map::Tile;
 use crate::monster::{Ai, Monster};
@@ -100,7 +100,12 @@ pub fn next_action(game: &Game) -> Action {
     if let Some(action) = stairs_step(game) {
         return action;
     }
-    explore_step(game).unwrap_or(Action::Wait)
+    if let Some(action) = explore_step(game) {
+        return action;
+    }
+    // Nothing left to explore and no way to the stairs: a sleeping
+    // monster must be blocking the way on. Only now go and fight it.
+    step_toward_monster(game, &asleep).unwrap_or(Action::Wait)
 }
 
 /// One step of auto-explore: toward the nearest item worth picking up
@@ -226,24 +231,43 @@ fn visible_monsters(game: &Game) -> Vec<&Monster> {
         .collect()
 }
 
-/// An explored tile you could walk onto that borders unexplored ones.
+/// An explored tile you could walk onto with an unexplored tile
+/// straight up, down, left or right of it.
+///
+/// Diagonal neighbors don't count. The outer corners of a room are
+/// never in view from inside it, so counting them would make every room
+/// corner look unexplored forever. Worse, a monster standing in such a
+/// corner blocks the goal while in sight and unblocks it when out of
+/// sight, and the bot would step back and forth between the two views.
+/// Rooms and corridors join straight through walls and doors, never
+/// only at corners, so nothing is missed.
 fn is_frontier(game: &Game, p: Point) -> bool {
+    const STRAIGHT: [Point; 4] = [
+        Point::new(0, -1),
+        Point::new(1, 0),
+        Point::new(0, 1),
+        Point::new(-1, 0),
+    ];
     let map = &game.map;
     map.is_revealed(p)
         && map.tile(p).is_passable()
-        && DIRECTIONS_8.iter().any(|&d| {
+        && STRAIGHT.iter().any(|&d| {
             let n = p + d;
             map.in_bounds(n) && !map.is_revealed(n)
         })
 }
 
-/// Tiles the player knows they can walk through: explored, open or a
-/// door, and without a visible monster in the way.
+/// Tiles the player knows they can walk through: explored, and open
+/// or a door.
+///
+/// Monsters are deliberately ignored. Walking into one attacks it, so a
+/// monster in the way just becomes a fight. Treating monster tiles as
+/// blocked only while they are in view made routes flip each time a
+/// monster slipped in or out of sight, and the bot would pace between
+/// two tiles forever.
 fn known_walkable(game: &Game, p: Point) -> bool {
     let tile = game.map.tile(p);
-    game.map.is_revealed(p)
-        && (tile.is_walkable() || tile == Tile::DoorClosed)
-        && !(game.is_visible(p) && game.monster_at(p).is_some())
+    game.map.is_revealed(p) && (tile.is_walkable() || tile == Tile::DoorClosed)
 }
 
 /// A move toward the nearest tile where `is_goal` holds.
@@ -571,6 +595,25 @@ mod tests {
             steps += 1;
             assert!(steps < 2_000, "never went down");
         }
+    }
+
+    /// A monster on the route, seen or not, must not change the route:
+    /// that flip-flopping is what made the bot pace forever.
+    #[test]
+    fn routes_ignore_monsters_in_the_way() {
+        use crate::monster::{Kind, Monster};
+        let mut game = Game::new(2);
+        game.monsters.clear();
+        let before = explore_step(&game);
+        let Some(Action::Move(step)) = before else {
+            panic!("expected a step, got {before:?}");
+        };
+        let blocker = game.player.pos + step;
+        game.monsters
+            .push(Monster::new(Kind::Rat, blocker, Ai::Asleep));
+        game.update_fov();
+        assert!(game.is_visible(blocker));
+        assert_eq!(explore_step(&game), before, "the route changed");
     }
 
     #[test]

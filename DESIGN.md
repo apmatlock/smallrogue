@@ -46,8 +46,8 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 
 ### Character
 - **Attributes.** Strength adds melee damage and carry capacity. Agility adds accuracy and dodge. Intellect speeds identification of unknown items, and later powers magic.
-- **Levels.** Kills give XP. Each level raises max HP and grants a small attribute increase.
-- **Skills (learn by doing).** A small set of broad skills trained by use: Melee, Armor, Dodge, Stealth, Throwing. Training is fast, so a skill improves noticeably within one run.
+- **Skills (learn by doing).** Melee (trained by attacking: +1 accuracy per level, +1 damage per 2), Dodge (trained by being attacked: +1 dodge per level), Armor (trained by being hit while armored: +1 armor per 2 levels and 1 less heavy-armor dodge penalty per level), Stealth (trained when a sleeping monster that can see you stays asleep: -2% wake chance per level, from 25% down to 5%). Levels cost 10, 20, 30... points, up to level 10. Throwing waits until there is something to throw.
+- **Levels.** Experience per kill: rat 2, jackal 3, goblin 6, zombie 8. Level thresholds are 10, 30, 60, 100, 150... Each level gives +4 max health and one attribute point, cycling strength, agility, strength, agility, intellect.
 - **Hunger.** A food counter ticks down each turn. Hungry gives a warning, Weak gives penalties, Starving deals damage. Food is common enough that careful play never starves.
 
 ### Combat
@@ -102,7 +102,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 5 | Combat and UI | Fight and die. Sidebar, message log, death screen ✅ |
 | 6 | Items and inventory | Pick up, drop, equip weapons and armor, drink potions, read scrolls ✅ |
 | 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify ✅ |
-| 8 | Growth | XP levels with health and attributes. Skills that rise through use |
+| 8 | Growth | XP levels with health and attributes. Skills that rise through use ✅ |
 | 9 | Hunger and traps | Food clock and hidden traps |
 | 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |
 | 11 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |

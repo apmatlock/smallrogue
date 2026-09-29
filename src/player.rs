@@ -3,6 +3,7 @@
 use crate::combat::{Attack, Defense};
 use crate::geom::Point;
 use crate::item::{ArmorKind, Item, ItemKind, PotionKind, RingKind, WeaponKind};
+use crate::skills::{Skill, Skills};
 
 /// One slot per letter, a to z.
 pub const PACK_SIZE: usize = 26;
@@ -33,6 +34,11 @@ pub struct Player {
     pub inventory: Vec<Item>,
     /// Healing built up toward the next point of health.
     pub regen_progress: i32,
+    /// Character level, raised by experience from kills.
+    pub level: u32,
+    /// Total experience earned this run.
+    pub xp: u32,
+    pub skills: Skills,
 }
 
 impl Player {
@@ -48,6 +54,9 @@ impl Player {
             intellect: 2,
             inventory: Vec::new(),
             regen_progress: 0,
+            level: 1,
+            xp: 0,
+            skills: Skills::default(),
         };
         let kit = [
             ItemKind::Weapon(WeaponKind::Sword),
@@ -107,8 +116,14 @@ impl Player {
         (BASE_REGEN + 6 * self.ring_bonus(RingKind::Regeneration)).max(2)
     }
 
+    pub fn skill(&self, skill: Skill) -> i32 {
+        self.skills.level(skill) as i32
+    }
+
     pub fn attack(&self) -> Attack {
-        let bonus = self.strength_bonus();
+        // Melee skill: +1 accuracy per level, +1 damage per 2 levels.
+        let melee = self.skill(Skill::Melee);
+        let bonus = self.strength_bonus() + melee / 2;
         let (damage, accuracy, enchant) = match self.weapon() {
             Some(Item {
                 kind: ItemKind::Weapon(w),
@@ -122,26 +137,33 @@ impl Player {
         let min = (damage.0 + bonus + enchant).max(1);
         let max = (damage.1 + bonus + enchant).max(min);
         Attack {
-            accuracy: 1 + self.agility + accuracy + enchant + self.ring_bonus(RingKind::Accuracy),
+            accuracy: 1
+                + self.agility
+                + accuracy
+                + enchant
+                + melee
+                + self.ring_bonus(RingKind::Accuracy),
             damage: (min, max),
         }
     }
 
     pub fn defense(&self) -> Defense {
         let protection = self.ring_bonus(RingKind::Protection);
+        let dodge = self.agility + self.skill(Skill::Dodge);
+        let armor_skill = self.skill(Skill::Armor);
         let base = match self.armor() {
             Some(Item {
                 kind: ItemKind::Armor(a),
                 enchant,
                 ..
             }) => Defense {
-                dodge: self.agility + a.stats().dodge,
-                armor: (a.stats().armor + enchant).max(0),
+                // Armor skill: each level takes 1 off heavy armor's
+                // dodge penalty (never past zero), and every 2 levels
+                // add 1 armor.
+                dodge: dodge + (a.stats().dodge + armor_skill).min(0),
+                armor: (a.stats().armor + enchant + armor_skill / 2).max(0),
             },
-            _ => Defense {
-                dodge: self.agility,
-                armor: 0,
-            },
+            _ => Defense { dodge, armor: 0 },
         };
         Defense {
             armor: (base.armor + protection).max(0),
@@ -298,6 +320,35 @@ mod tests {
         }
         assert_eq!(p.defense().armor, base_armor + 2);
         assert_eq!(p.regen_rate(), base_regen + 12);
+    }
+
+    #[test]
+    fn skills_improve_combat() {
+        let mut p = Player::fighter(Point::default());
+        let (attack, defense) = (p.attack(), p.defense());
+        p.skills.train(Skill::Melee, 10 + 20); // level 2
+        p.skills.train(Skill::Dodge, 10); // level 1
+        assert_eq!(p.attack().accuracy, attack.accuracy + 2);
+        assert_eq!(
+            p.attack().damage,
+            (attack.damage.0 + 1, attack.damage.1 + 1)
+        );
+        assert_eq!(p.defense().dodge, defense.dodge + 1);
+    }
+
+    #[test]
+    fn armor_skill_softens_heavy_armor() {
+        let mut p = Player::fighter(Point::default());
+        let plate = Item::new(ItemKind::Armor(ArmorKind::Plate));
+        let letter = p.add_item(plate).unwrap();
+        p.item_mut('b').unwrap().equipped = false;
+        p.item_mut(letter).unwrap().equipped = true;
+        assert_eq!(p.defense().dodge, 3 - 3);
+        p.skills.train(Skill::Armor, 10 + 20); // level 2
+        assert_eq!(p.defense().dodge, 3 - 1);
+        assert_eq!(p.defense().armor, 5 + 1);
+        p.skills.train(Skill::Armor, 30 + 40 + 50); // level 5
+        assert_eq!(p.defense().dodge, 3, "the penalty never turns into a bonus");
     }
 
     #[test]

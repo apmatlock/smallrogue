@@ -19,6 +19,7 @@ use crate::lore::Lore;
 use crate::map::Tile;
 use crate::menu::{self, Line};
 use crate::monster::{Ai, Monster};
+use crate::skills::{self, Skill};
 
 const SIDEBAR_WIDTH: i32 = 22;
 const LOG_HEIGHT: i32 = 4;
@@ -144,6 +145,63 @@ pub fn item_details(lore: &Lore, item: &Item) -> Vec<Line> {
     lines
 }
 
+/// The character sheet: level, attributes, combat numbers and skills.
+pub fn character_lines(game: &Game) -> Vec<Line> {
+    let p = &game.player;
+    let (attack, defense) = (p.attack(), p.defense());
+    let next = skills::xp_for_level(p.level + 1);
+    let mut lines = vec![
+        Line::new(
+            format!("Level {}   Experience {}/{next}", p.level, p.xp),
+            TEXT,
+        ),
+        Line::new(format!("Health {}/{}", p.hp, p.max_hp), TEXT),
+        Line::new(
+            format!(
+                "Strength {}   Agility {}   Intellect {}",
+                p.strength, p.agility, p.intellect
+            ),
+            TEXT,
+        ),
+        Line::new(
+            format!(
+                "Attack: accuracy {}, damage {}-{}",
+                attack.accuracy, attack.damage.0, attack.damage.1
+            ),
+            TEXT,
+        ),
+        Line::new(
+            format!(
+                "Defense: dodge {}, armor {}   Sight {}",
+                defense.dodge,
+                defense.armor,
+                p.sight_radius()
+            ),
+            TEXT,
+        ),
+        Line::new("", TEXT),
+        Line::new("Skills improve as you use them:", TITLE),
+    ];
+    for skill in Skill::ALL {
+        let level = p.skills.level(skill);
+        let progress = if level >= skills::MAX_SKILL {
+            "mastered".to_string()
+        } else {
+            let (have, need) = p.skills.progress(skill);
+            format!("{have}/{need} to next")
+        };
+        lines.push(Line::new(
+            format!("{:<8} {level:>2}   {progress}", skill.name()),
+            TEXT,
+        ));
+        lines.push(Line::new(
+            format!("            {}", skill.about()),
+            TEXT_DIM,
+        ));
+    }
+    lines
+}
+
 /// Every key, for the help box.
 pub fn help_lines() -> Vec<Line> {
     [
@@ -155,6 +213,7 @@ pub fn help_lines() -> Vec<Line> {
         "c                close a door",
         "g                pick up (walking over also works)",
         "i                inventory",
+        "C                character: level, attributes, skills",
         "e                equip or remove",
         "d                drop",
         "q                drink a potion",
@@ -320,7 +379,14 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         &format!("Depth {}  Turn {}", game.depth, game.turn),
         TEXT,
     );
-    frame.print(x, 5, &format!("Seed {}", game.seed), TEXT_DIM);
+    let next = skills::xp_for_level(p.level + 1);
+    frame.print(
+        x,
+        5,
+        &format!("Level {}  XP {}/{next}", p.level, p.xp),
+        TEXT,
+    );
+    frame.print(x, 6, &format!("Seed {}", game.seed), TEXT_DIM);
     // Equipment: weapon, armor, then rings, one line each.
     let gear: Vec<&Item> = p
         .weapon()
@@ -329,7 +395,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         .chain(p.rings())
         .collect();
     for (i, item) in gear.iter().enumerate() {
-        let y = 6 + i as i32;
+        let y = 7 + i as i32;
         frame.set(
             x,
             y,
@@ -346,7 +412,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let keys = ["?  all keys", "i  inventory"];
     // On short terminals the hints would cover the status above, which
     // matters more, so they are left out.
-    let list_top = 7 + gear.len() as i32;
+    let list_top = 8 + gear.len() as i32;
     let keys_top = height - keys.len() as i32;
     let show_keys = keys_top >= list_top;
     if show_keys {
@@ -535,8 +601,9 @@ mod tests {
         for height in MIN_HEIGHT..MIN_HEIGHT + 12 {
             let frame = draw(&game, MIN_WIDTH, height);
             assert!(row_text(&frame, 4).contains("Depth 1"), "height {height}");
-            assert!(row_text(&frame, 5).contains("Seed 1"), "height {height}");
-            assert!(row_text(&frame, 6).contains("sword"), "height {height}");
+            assert!(row_text(&frame, 5).contains("Level 1"), "height {height}");
+            assert!(row_text(&frame, 6).contains("Seed 1"), "height {height}");
+            assert!(row_text(&frame, 7).contains("sword"), "height {height}");
         }
     }
 
@@ -573,6 +640,21 @@ mod tests {
             // column at the start must still show.
             let start: String = line.text.chars().take(10).collect();
             assert!(help.contains(&start), "help line {start:?} never shown");
+        }
+    }
+
+    #[test]
+    fn character_sheet_lists_every_skill() {
+        let mut game = Game::new(1);
+        game.player.skills.train(Skill::Melee, 12);
+        let text: String = character_lines(&game)
+            .iter()
+            .map(|l| l.text.clone() + "\n")
+            .collect();
+        assert!(text.contains("Level 1   Experience 0/10"), "{text}");
+        assert!(text.contains("melee     1   2/20 to next"), "{text}");
+        for skill in Skill::ALL {
+            assert!(text.contains(skill.name()));
         }
     }
 
