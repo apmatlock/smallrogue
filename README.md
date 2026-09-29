@@ -91,9 +91,9 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 | `+` | Closed door |
 | `'` | Open door |
 | `>` | Stairs down |
-| `r` `j` `g` `z` `k` `:` `B` `a` | Early: rat, jackal, goblin, zombie, kobold, newt, giant bat, giant ant |
-| `o` `h` `Z` `G` `s` `O` | Middle: orc, hobgoblin, skeleton, ghoul, giant spider, ogre |
-| `T` `8` `W` `V` `D` `&` | Deep: troll, stone golem, wraith, vampire, dragon, demon |
+| `r` `j` `g` `z` `k` `:` `B` `R` `a` `y` | Early: rat, jackal, goblin, zombie, kobold, newt, giant bat, redcap, giant ant, harpy |
+| `o` `h` `Z` `d` `G` `s` `Y` `O` `q` `X` | Middle: orc, hobgoblin, skeleton, draugr, ghoul, giant spider, owlbear, ogre, gargoyle, bulette |
+| `T` `8` `U` `W` `V` `P` `D` `&` | Deep: troll, stone golem, oni, wraith, vampire, frost giant, dragon, demon |
 | `)` | Weapon |
 | `[` | Armor |
 | `!` | Potion |
@@ -110,7 +110,7 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 **Monsters** sleep, wander, or hunt you. A monster can see you exactly when you can see it. Hunters that lose sight of you go to where they last saw you. Jackals are fast and zombies are slow. Rats and jackals can't open doors, so closing one can save you.
 
-**The dungeon gets harder the deeper you go.** Twenty kinds of monster arrive at set depths, from rats and newts on the first floor to dragons at 22 and demons at 25, and are most common for a few floors after they first appear. Every monster also grows stronger with depth: its health compounds by 6% per floor, and it gains damage every 2 floors, accuracy every 3 and dodge every 4. Deeper floors hold more monsters, and fewer of them are asleep.
+**The dungeon gets harder the deeper you go.** Twenty-eight kinds of monster arrive at set depths, from rats and newts on the first floor to dragons at 22 and demons at 25, and are most common for a few floors after they first appear. Every monster also grows stronger with depth: its health compounds by 6% per floor, and it gains damage every 2 floors, accuracy every 3 and dodge every 4. Deeper floors hold more monsters, and fewer of them are asleep.
 
 **Combat** rolls to hit by comparing the attacker's accuracy with the defender's dodge, then rolls damage and subtracts armor. A hit always does at least 1 damage. You slowly regain health over time. When you die, a death screen shows what killed you, how deep you got, and the seed.
 
