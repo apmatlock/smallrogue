@@ -148,7 +148,23 @@ pub fn item_details(lore: &Lore, item: &Item) -> Vec<Line> {
 /// The character sheet: level, attributes, combat numbers and skills.
 pub fn character_lines(game: &Game) -> Vec<Line> {
     let p = &game.player;
-    let (attack, defense) = (p.attack(), p.defense());
+    // Work out combat numbers as the player knows them: unidentified
+    // enchantments count as 0, and the numbers get a "?" so the sheet
+    // can't be used to identify gear by comparing before and after.
+    let mut known = p.clone();
+    let mut unsure = false;
+    for item in known
+        .inventory
+        .iter_mut()
+        .filter(|i| i.equipped && !i.known)
+    {
+        // Any unknown piece gets the "?", even a +0 one: leaving it
+        // off would itself reveal the +0.
+        unsure = true;
+        item.enchant = 0;
+    }
+    let (attack, defense) = (known.attack(), known.defense());
+    let q = if unsure { "?" } else { "" };
     let next = skills::xp_for_level(p.level + 1);
     let mut lines = vec![
         Line::new(
@@ -165,14 +181,14 @@ pub fn character_lines(game: &Game) -> Vec<Line> {
         ),
         Line::new(
             format!(
-                "Attack: accuracy {}, damage {}-{}",
+                "Attack: accuracy {}{q}, damage {}-{}{q}",
                 attack.accuracy, attack.damage.0, attack.damage.1
             ),
             TEXT,
         ),
         Line::new(
             format!(
-                "Defense: dodge {}, armor {}   Sight {}",
+                "Defense: dodge {}{q}, armor {}{q}   Sight {}",
                 defense.dodge,
                 defense.armor,
                 p.sight_radius()
@@ -641,6 +657,31 @@ mod tests {
             let start: String = line.text.chars().take(10).collect();
             assert!(help.contains(&start), "help line {start:?} never shown");
         }
+    }
+
+    /// Equipping unidentified gear must not change the sheet's numbers,
+    /// or comparing before and after would identify it for free.
+    #[test]
+    fn character_sheet_does_not_leak_enchantments() {
+        use crate::item::{Item, WeaponKind};
+        let mut game = Game::new(1);
+        let before = character_lines(&game)[3].text.clone();
+        let sword = Item::enchanted(ItemKind::Weapon(WeaponKind::Sword), 2);
+        let letter = game.player.add_item(sword).unwrap();
+        game.player.item_mut('a').unwrap().equipped = false;
+        game.player.item_mut(letter).unwrap().equipped = true;
+        let after = character_lines(&game)[3].text.clone();
+        assert_eq!(after.replace('?', ""), before, "the +2 shows through");
+        assert!(after.contains('?'));
+        game.player.item_mut(letter).unwrap().known = true;
+        assert!(!character_lines(&game)[3].text.contains('?'));
+
+        // An unknown +0 item still gets the "?".
+        let plain = Item::new(ItemKind::Weapon(WeaponKind::Mace));
+        let mace = game.player.add_item(plain).unwrap();
+        game.player.item_mut(letter).unwrap().equipped = false;
+        game.player.item_mut(mace).unwrap().equipped = true;
+        assert!(character_lines(&game)[3].text.contains('?'));
     }
 
     #[test]
