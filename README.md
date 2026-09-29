@@ -166,9 +166,9 @@ The terminal renderer draws only changed cells, and the game waits for input wit
 
 The intended game is a grim, fast, endless fantasy crawl with short runs and depth reached as the score. Next milestones include:
 
-- Experience levels and skills that improve through use
 - Hunger and traps
-- Distinct dungeon zones and increasing difficulty
+- Monster abilities: regenerating trolls, draining wraiths, thieves, gear-wreckers, splitting jellies and packs
+- Distinct themed dungeon zones
 - High scores, help, and balance
 
 See [DESIGN.md](DESIGN.md) for the design decisions and full milestone plan.

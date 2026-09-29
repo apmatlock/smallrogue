@@ -104,12 +104,27 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify ✅ |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use ✅ |
 | 9 | Hunger and traps | Food clock and hidden traps |
-| 10 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling |
-| 11 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
+| 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs |
+| 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where |
+| 12 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |
+
+### Milestone 10 plan: monster abilities
+
+Added to the plan after comparing our roster with the recurring cast of classic roguelikes (Rogue, NetHack, Angband, DCSS, Brogue and others). Our eight monsters are all classics, but they only differ in numbers and speed. The most memorable roguelike monsters change how you play instead of just hitting harder. In order:
+
+1. **Upgrade existing monsters (small).** Trolls regenerate health each turn, so finishing a fight matters. Wraiths drain maximum health or experience on a hit.
+2. **Three new behaviors (medium).**
+   - A **thief**, such as a monkey or nymph, steals an item and flees. Killing it drops the item.
+   - A **gear-wrecker**, such as a rust monster or acid creature, lowers armor enchantment on a hit. This plays off enchantments and curses.
+   - A **splitter**, a jelly, spawns copies when hit, with a cap so floors can't overflow. Jellies conventionally use `j`, so either they or our jackal need a different letter.
+3. **Packs (medium).** Jackals and orcs spawn in groups, which makes doorways and corridors matter.
+4. **Later, each needing a new system.** Ranged attackers that keep their distance, such as centaurs or goblin archers, need ranged attacks. Paralysis, poison and petrification need a status-effect system.
+
+Milestone 11's zones will then decide which abilities appear where: for example, drainers and ghouls in crypts, jellies and acid in flooded halls, packs and thieves in warrens.
 
 ### Moved ahead of milestones 9 and 10: monster scaling
 
-Built right after milestone 8, at the user's request, so balance runs had a real difficulty curve to measure. Themed zones stay in milestone 10.
+Built right after milestone 8, at the user's request, so balance runs had a real difficulty curve to measure. Themed zones stay in milestone 11.
 
 - **New monsters by depth:** orc (5), ghoul (9), troll (13), wraith (16, fast and evasive). Kinds that arrived in the last 6 floors are three times as common as older ones.
 - **Stat scaling:** health compounds 6% per floor; +1 damage per 2 floors, +1 accuracy per 3, +1 dodge per 4; experience grows 8% of base per floor (not compounding, so the character can't simply outgrow the dungeon).

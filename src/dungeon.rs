@@ -15,7 +15,7 @@ use crate::geom::{Point, Rect};
 use crate::map::{Map, Tile};
 use crate::rng::Rng;
 
-/// Settings that shape a floor. Zones (milestone 10) will each supply
+/// Settings that shape a floor. Zones (milestone 11) will each supply
 /// their own, which is how floor size will vary by zone.
 pub struct FloorParams {
     pub width: i32,
