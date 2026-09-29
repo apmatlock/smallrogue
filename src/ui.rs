@@ -516,11 +516,24 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         draw_bar(
             frame,
             (x + 2, y, width - 2),
-            &format!("{:<8}{state}", species.name),
+            &monster_label(species.name, state, width - 2),
             (m.hp, m.max_hp()),
             TEXT,
             HEALTH_BAR,
         );
+    }
+}
+
+/// "name  state" for a monster's sidebar bar. Long names like "giant
+/// spider" get a shortened state so both fit.
+fn monster_label(name: &str, state: &str, width: i32) -> String {
+    let name_width = name.chars().count() as i32;
+    if name_width + 1 + state.len() as i32 <= width {
+        let pad = (width - state.len() as i32).max(name_width + 1) as usize;
+        format!("{name:<pad$}{state}")
+    } else {
+        let room = (width - name_width - 1).max(0) as usize;
+        format!("{name} {}", &state[..room.min(state.len())])
     }
 }
 
@@ -791,6 +804,14 @@ mod tests {
         let frame = draw(&game, 80, 24);
         assert!(row_text(&frame, 3).contains("Food 100 Weak"));
         assert_eq!(frame.get(x as u16, 3).fg, BAD);
+    }
+
+    #[test]
+    fn monster_labels_fit_their_bar() {
+        assert_eq!(monster_label("rat", "hunting", 16), "rat      hunting");
+        let long = monster_label("giant spider", "hunting", 16);
+        assert_eq!(long, "giant spider hun");
+        assert_eq!(long.chars().count(), 16);
     }
 
     #[test]

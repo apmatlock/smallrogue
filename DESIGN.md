@@ -133,6 +133,7 @@ Built right after milestone 8, at the user's request, so balance runs had a real
 - **Alertness:** 50% of monsters start asleep on depth 1, 3% fewer per floor, down to 5%. Monsters per floor: 2 plus depth, up to 16.
 - **Target:** the bot (a careful beginner) should die around depth 15-20. Tuned with 200-game runs: median final depth 15, median death depth 13, deaths spread from 3 to 19. About a third of runs still snowball past the turn cap because resting is free; hunger in milestone 9 is meant to close that gap, after which the numbers should be re-checked.
 - All knobs are constants at the top of `src/monster.rs`.
+- **Twelve more monsters** were added at the user's request, as stats and speed only (abilities come in milestone 10). Early: kobold (1), newt (1, slow), giant bat (2, double speed), giant ant (4, fast). Middle: hobgoblin (6), skeleton (6, well armored), giant spider (8, fast and accurate), ogre (10, slow, huge hits). Deep: stone golem (14, half speed, enormous health), vampire (18), dragon (22, can't open doors), demon (25). Base stats account for the compounding depth scaling, so each arrives a step above its neighbors rather than towering over them. Balance held: median final depth 16, median death depth 14, 9 starvations in 200 runs.
 
 ### Added along the way: bot and auto modes
 
