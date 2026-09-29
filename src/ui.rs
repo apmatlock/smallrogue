@@ -42,6 +42,9 @@ const GOOD: Rgb = Rgb(120, 200, 120);
 const BAD: Rgb = Rgb(225, 95, 80);
 const HEALTH_FULL: Rgb = Rgb(110, 25, 25);
 const HEALTH_EMPTY: Rgb = Rgb(35, 18, 18);
+/// Bar colors as (filled, empty).
+const HEALTH_BAR: (Rgb, Rgb) = (HEALTH_FULL, HEALTH_EMPTY);
+const FOOD_BAR: (Rgb, Rgb) = (Rgb(105, 75, 20), Rgb(34, 27, 14));
 
 pub fn draw(game: &Game, width: u16, height: u16) -> Frame {
     let mut frame = Frame::new(width, height);
@@ -407,31 +410,48 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let width = SIDEBAR_WIDTH - 2;
     let p = &game.player;
     frame.print(x, 0, "SMALLROGUE", TITLE);
-    // Hunger shows after the health numbers, in red once it matters.
+    let health = format!("Health {}/{}", p.hp, p.max_hp);
+    draw_bar(
+        frame,
+        (x, 2, width),
+        &health,
+        (p.hp, p.max_hp),
+        TEXT,
+        HEALTH_BAR,
+    );
+    // The food bar names the hunger stage once there is one, in red when
+    // it starts to hurt.
     let hunger = p.hunger();
-    let label = format!("Health {}/{} {}", p.hp, p.max_hp, hunger.label());
-    let label_color = if hunger >= Hunger::Weak { BAD } else { TEXT };
-    draw_bar(frame, (x, 2, width), &label, (p.hp, p.max_hp), label_color);
+    let food = format!("Food {} {}", p.food, hunger.label());
+    let food_color = if hunger >= Hunger::Weak { BAD } else { TEXT };
+    draw_bar(
+        frame,
+        (x, 3, width),
+        &food,
+        (p.food, FOOD_MAX),
+        food_color,
+        FOOD_BAR,
+    );
     frame.print(
         x,
-        3,
+        4,
         &format!("Str {}  Agi {}  Int {}", p.strength, p.agility, p.intellect),
         TEXT,
     );
     frame.print(
         x,
-        4,
+        5,
         &format!("Depth {}  Turn {}", game.depth, game.turn),
         TEXT,
     );
     let next = skills::xp_for_level(p.level + 1);
     frame.print(
         x,
-        5,
+        6,
         &format!("Level {}  XP {}/{next}", p.level, p.xp),
         TEXT,
     );
-    frame.print(x, 6, &format!("Seed {}", game.seed), TEXT_DIM);
+    frame.print(x, 7, &format!("Seed {}", game.seed), TEXT_DIM);
     // Equipment: weapon, armor, then rings, one line each.
     let gear: Vec<&Item> = p
         .weapon()
@@ -440,7 +460,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         .chain(p.rings())
         .collect();
     for (i, item) in gear.iter().enumerate() {
-        let y = 7 + i as i32;
+        let y = 8 + i as i32;
         frame.set(
             x,
             y,
@@ -457,7 +477,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let keys = ["?  all keys", "i  inventory"];
     // On short terminals the hints would cover the status above, which
     // matters more, so they are left out.
-    let list_top = 8 + gear.len() as i32;
+    let list_top = 9 + gear.len() as i32;
     let keys_top = height - keys.len() as i32;
     let show_keys = keys_top >= list_top;
     if show_keys {
@@ -499,13 +519,22 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
             &format!("{:<8}{state}", species.name),
             (m.hp, m.max_hp()),
             TEXT,
+            HEALTH_BAR,
         );
     }
 }
 
 /// Draws `label` on top of a bar whose filled part shows
-/// `current / max`. `area` is (x, y, width).
-fn draw_bar(frame: &mut Frame, area: (i32, i32, i32), label: &str, amount: (i32, i32), fg: Rgb) {
+/// `current / max`. `area` is (x, y, width); `colors` are the bar's
+/// (filled, empty) backgrounds.
+fn draw_bar(
+    frame: &mut Frame,
+    area: (i32, i32, i32),
+    label: &str,
+    amount: (i32, i32),
+    fg: Rgb,
+    colors: (Rgb, Rgb),
+) {
     let (x, y, width) = area;
     let (current, max) = amount;
     // Round up, so anything alive shows at least one filled cell.
@@ -517,11 +546,7 @@ fn draw_bar(frame: &mut Frame, area: (i32, i32, i32), label: &str, amount: (i32,
     let mut label = label.chars();
     for i in 0..width {
         let ch = label.next().unwrap_or(' ');
-        let bg = if i < filled {
-            HEALTH_FULL
-        } else {
-            HEALTH_EMPTY
-        };
+        let bg = if i < filled { colors.0 } else { colors.1 };
         frame.set(x + i, y, Cell { ch, fg, bg });
     }
 }
@@ -645,10 +670,11 @@ mod tests {
         let game = Game::new(1);
         for height in MIN_HEIGHT..MIN_HEIGHT + 12 {
             let frame = draw(&game, MIN_WIDTH, height);
-            assert!(row_text(&frame, 4).contains("Depth 1"), "height {height}");
-            assert!(row_text(&frame, 5).contains("Level 1"), "height {height}");
-            assert!(row_text(&frame, 6).contains("Seed 1"), "height {height}");
-            assert!(row_text(&frame, 7).contains("sword"), "height {height}");
+            assert!(row_text(&frame, 3).contains("Food 1800"), "height {height}");
+            assert!(row_text(&frame, 5).contains("Depth 1"), "height {height}");
+            assert!(row_text(&frame, 6).contains("Level 1"), "height {height}");
+            assert!(row_text(&frame, 7).contains("Seed 1"), "height {height}");
+            assert!(row_text(&frame, 8).contains("sword"), "height {height}");
         }
     }
 
@@ -747,13 +773,34 @@ mod tests {
     }
 
     #[test]
+    fn food_bar_shows_hunger() {
+        let mut game = Game::new(1);
+        game.player.food = FOOD_MAX / 2;
+        let frame = draw(&game, 80, 24);
+        let (view_w, _) = map_area(80, 24);
+        let x = view_w + 2;
+        let row = row_text(&frame, 3);
+        assert!(row.contains("Food 1050"), "{row}");
+        assert!(!row.contains("Hungry"));
+        // Half full: the first half of the bar is filled.
+        let width = SIDEBAR_WIDTH - 2;
+        assert_eq!(frame.get((x + width / 2 - 1) as u16, 3).bg, FOOD_BAR.0);
+        assert_eq!(frame.get((x + width / 2 + 1) as u16, 3).bg, FOOD_BAR.1);
+
+        game.player.food = 100;
+        let frame = draw(&game, 80, 24);
+        assert!(row_text(&frame, 3).contains("Food 100 Weak"));
+        assert_eq!(frame.get(x as u16, 3).fg, BAD);
+    }
+
+    #[test]
     fn health_bar_fills_in_proportion() {
         let mut frame = Frame::new(10, 1);
-        draw_bar(&mut frame, (0, 0, 10), "", (5, 10), TEXT);
+        draw_bar(&mut frame, (0, 0, 10), "", (5, 10), TEXT, HEALTH_BAR);
         assert_eq!(frame.get(4, 0).bg, HEALTH_FULL);
         assert_eq!(frame.get(5, 0).bg, HEALTH_EMPTY);
         // One health left still shows a sliver.
-        draw_bar(&mut frame, (0, 0, 10), "", (1, 100), TEXT);
+        draw_bar(&mut frame, (0, 0, 10), "", (1, 100), TEXT, HEALTH_BAR);
         assert_eq!(frame.get(0, 0).bg, HEALTH_FULL);
     }
 

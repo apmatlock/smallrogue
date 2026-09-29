@@ -128,7 +128,7 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 **Identification.** Potions, scrolls and rings look different in every run: a murky potion might heal you in one game and burn you in the next. Drinking or reading one teaches you that kind for the rest of the run, and putting on a ring tells you what kind it is. Enchantments stay hidden until you wear an item for about 300 turns (less with more Intellect) or read a scroll of identify on it.
 
-**Hunger.** Every turn uses a little food. You start with 1,800 and a ration of food. Below 300 you are hungry, below 150 you are weak (no healing, less accurate), and at 0 you start starving and lose health until you eat. Rations and strips of jerky turn up on many floors; eat with `E`. The game won't let you eat when most of the food would go to waste.
+**Hunger.** Every turn uses a little food. You start with 1,800 and a ration of food. Below 300 you are hungry, below 150 you are weak (no healing, less accurate), and at 0 you start starving and lose health until you eat. Rations and strips of jerky turn up on many floors; eat with `E`. The game won't let you eat when most of the food would go to waste. A food bar under your health bar shows how much you have left and names the stage once you're hungry.
 
 **Traps** hide on the floor: darts that hurt, alarms that wake everything nearby, teleport traps, and trapdoors that drop you a floor. Standing next to a hidden trap gives you a chance each turn to notice it, better with a ring of awareness, and magic mapping shows every trap. Known traps are drawn as `^`; stepping onto one takes a second move in the same direction to confirm. Auto-explore and the bot walk around known traps.
 
