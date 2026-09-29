@@ -16,6 +16,7 @@ use crate::monster::{self, Ability, Ai, Monster};
 use crate::player::{Hunger, Player};
 use crate::rng::{self, Rng};
 use crate::skills::{self, Attribute, Skill};
+use crate::stats::{Kill, Stats};
 use crate::text::article;
 use crate::trap::{self, Trap};
 
@@ -118,6 +119,8 @@ pub struct Game {
     /// Kept separate from floor generation so what happens on one
     /// floor never changes the layout of the next.
     pub(crate) rng: Rng,
+    /// Counts kept over the run, for the death screen.
+    pub stats: Stats,
 }
 
 impl Game {
@@ -139,6 +142,7 @@ impl Game {
             trap_warning: None,
             lore: Lore::new(&mut Rng::new(rng::mix(seed, 0x4C4F_5245))),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
+            stats: Stats::default(),
         };
         // The fighter knows the healing potion they start with.
         game.lore.learn(ItemKind::Potion(PotionKind::Healing));
@@ -304,6 +308,7 @@ impl Game {
             return Outcome::Free;
         }
         self.enter_floor(self.depth + 1);
+        self.stats.stairs_taken += 1;
         self.log(&format!("You descend to depth {}.", self.depth));
         Outcome::NewFloor
     }
@@ -399,7 +404,7 @@ impl Game {
             }
         }
         if now == Hunger::Starving && self.turn.is_multiple_of(STARVING_DAMAGE_EVERY) {
-            self.player.hp -= 1;
+            self.hurt_player(1);
             if self.player.hp <= 0 {
                 self.kill_player("starvation");
             }
@@ -420,11 +425,22 @@ impl Game {
         let name = self.monsters[i].name();
         let defense = self.monsters[i].defense();
         match combat::resolve(&mut self.rng, self.player.attack(), defense) {
-            None => self.log(&format!("You miss the {name}.")),
+            None => {
+                self.stats.misses += 1;
+                self.log(&format!("You miss the {name}."));
+            }
             Some(damage) => {
+                self.stats.hits += 1;
+                // Only the health it had counts, not overkill.
+                self.stats.damage_dealt += damage.min(self.monsters[i].hp).max(0) as u32;
                 self.monsters[i].hp -= damage;
                 if self.monsters[i].hp <= 0 {
                     let dead = self.monsters.remove(i);
+                    self.stats.record_kill(Kill {
+                        name,
+                        xp: dead.xp(),
+                        depth: self.depth,
+                    });
                     self.log_as(&format!("You kill the {name}!"), MsgKind::Good);
                     self.drop_loot(&dead);
                     self.gain_xp(dead.xp());
@@ -463,7 +479,7 @@ impl Game {
                 {
                     return;
                 }
-                self.player.hp -= damage;
+                self.hurt_player(damage);
                 self.log_as(
                     &format!("The {name} {verb} you for {damage}."),
                     MsgKind::Bad,
@@ -527,6 +543,13 @@ impl Game {
                 MsgKind::Good,
             );
         }
+    }
+
+    /// Takes health from the player, counting it for the death screen.
+    /// The caller checks for death, since only it knows the cause.
+    pub(crate) fn hurt_player(&mut self, damage: i32) {
+        self.stats.damage_taken += damage.max(0) as u32;
+        self.player.hp -= damage;
     }
 
     /// Ends the run. `killer` finishes the sentence "Killed by ...",
@@ -648,6 +671,7 @@ mod tests {
         game.player.pos = Point::new(5, 1);
         game.apply(Action::Descend);
         assert_eq!(game.depth, 2);
+        assert_eq!(game.stats.stairs_taken, 1, "only the real descent counts");
         assert_eq!(game.map.width(), dungeon::STANDARD.width);
         assert!(game.map.tile(game.player.pos).is_walkable());
     }
@@ -860,6 +884,20 @@ mod tests {
         assert!(game.monsters.is_empty());
         let kill = game.log.iter().find(|m| m.text == "You kill the rat!");
         assert_eq!(kill.map(|m| m.kind), Some(MsgKind::Good));
+
+        // The kill is counted, and the damage matches the rat's health
+        // (overkill doesn't count).
+        let s = &game.stats;
+        assert_eq!(s.kills.get("rat"), Some(&1));
+        assert_eq!(s.toughest_kill.map(|k| k.name), Some("rat"));
+        let rat_hp = Monster::new(Kind::Rat, Point::default(), Ai::Asleep).hp;
+        assert_eq!(s.damage_dealt, rat_hp as u32);
+        let swings = game
+            .log
+            .iter()
+            .filter(|m| m.text.starts_with("You "))
+            .count();
+        assert!(s.hits >= 1 && (s.hits + s.misses) as usize <= swings);
     }
 
     #[test]

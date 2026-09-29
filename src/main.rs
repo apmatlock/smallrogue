@@ -10,6 +10,8 @@
 //! - `player`  — the player character's stats
 //! - `combat`  — rolling attacks and damage
 //! - `skills`  — skills that improve by use; levels from experience
+//! - `stats`   — counts kept over a run for the death screen
+//! - `scores`  — the high score list, saved between runs
 //! - `item`    — item kinds, their data, and spawning
 //! - `inventory` — picking up, equipping and using items
 //! - `lore`    — what the player knows about items; item names
@@ -52,8 +54,10 @@ mod monster;
 mod path;
 mod player;
 mod rng;
+mod scores;
 mod sim;
 mod skills;
+mod stats;
 mod term;
 mod text;
 mod trap;
@@ -99,6 +103,50 @@ fn main() -> ExitCode {
     }
 }
 
+/// Adds a finished run to the saved high scores, unless the bot
+/// played it. Returns the list, this run's place on it, and a note
+/// for the death screen. Trouble with the file is reported there
+/// rather than ending the game with an error.
+fn record_score(
+    game: &Game,
+    bot_played: bool,
+) -> (Vec<scores::Score>, Option<usize>, Option<String>) {
+    let Some(path) = scores::default_path() else {
+        return (
+            Vec::new(),
+            None,
+            Some("No home directory to keep scores in.".to_string()),
+        );
+    };
+    let mut list = match scores::load(&path) {
+        Ok(list) => list,
+        Err(e) => {
+            return (
+                Vec::new(),
+                None,
+                Some(format!("Couldn't read the scores: {e}")),
+            );
+        }
+    };
+    if bot_played {
+        let note = "The bot played this run, so it isn't recorded.";
+        return (list, None, Some(note.to_string()));
+    }
+    let score = scores::Score::from_game(game, scores::today());
+    let place = scores::insert(&mut list, score);
+    let mut note = match place {
+        Some(0) => Some("A new best run!".to_string()),
+        Some(_) => None,
+        None => Some(format!("This run didn't make the top {}.", scores::KEEP)),
+    };
+    if place.is_some()
+        && let Err(e) = scores::save(&path, &list)
+    {
+        note = Some(format!("Couldn't save the scores: {e}"));
+    }
+    (list, place, note)
+}
+
 /// Delay between bot moves at each speed setting, slowest first.
 const BOT_SPEEDS_MS: [u64; 7] = [500, 250, 120, 60, 25, 8, 0];
 
@@ -141,14 +189,25 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
         start_bot(&mut game, &mut autoplay);
     }
 
+    // Whether the bot played any part of this run. Such runs don't
+    // go on the high score list.
+    let mut bot_played = false;
+
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
+        bot_played |= autoplay.is_some();
         let status = autoplay.as_ref().map(Autoplay::status);
         draw_with_status(&mut terminal, &game, status.as_deref())?;
 
         if game.death.is_some() {
+            let (scores, this_run, note) = record_score(&game, bot_played);
+            let board = ui::Board {
+                scores: &scores,
+                this_run,
+                note: note.as_deref(),
+            };
             let (w, h) = terminal.size()?;
-            terminal.present(ui::draw_death(&game, w, h))?;
+            terminal.present(ui::draw_death(&game, &board, w, h))?;
             input::wait_for_any_key()?;
             break;
         }

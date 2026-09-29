@@ -20,7 +20,9 @@ use crate::map::Tile;
 use crate::menu::{self, Line};
 use crate::monster::{Ai, Monster};
 use crate::player::{FOOD_MAX, Hunger};
+use crate::scores::Score;
 use crate::skills::{self, Skill};
+use crate::text::article;
 
 const SIDEBAR_WIDTH: i32 = 22;
 const LOG_HEIGHT: i32 = 4;
@@ -590,42 +592,229 @@ fn faded(c: Rgb) -> Rgb {
     Rgb(f(c.0), f(c.1), f(c.2))
 }
 
-/// The screen shown after death: how it happened and the last few
-/// messages, so the player can see what went wrong.
-pub fn draw_death(game: &Game, width: u16, height: u16) -> Frame {
+/// The high score list as it stands after this run, for the death
+/// screen.
+pub struct Board<'a> {
+    pub scores: &'a [Score],
+    /// This run's place in `scores`, if it made the list.
+    pub this_run: Option<usize>,
+    /// Said above the list, e.g. why this run isn't on it.
+    pub note: Option<&'a str>,
+}
+
+/// One block of lines on the death screen, drawn left-aligned and
+/// centered as a whole so columns line up.
+type Block = Vec<(String, Rgb)>;
+
+/// The screen shown after death: how it happened, what the run
+/// achieved, the high scores, and the last few messages.
+///
+/// Blocks are added in order of importance while they fit, so a small
+/// terminal still shows the cause of death and the key stats.
+pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame {
     let mut frame = Frame::new(width, height);
     let (w, h) = (width as i32, height as i32);
-    let center = |text: &str| (w - text.chars().count() as i32).max(0) / 2;
 
     let cause = game
         .death_summary()
         .unwrap_or_else(|| "You died.".to_string());
-    let lines: Vec<(String, Rgb)> = vec![
+    let heading: Block = vec![
         ("You have died.".to_string(), TITLE),
         (String::new(), TEXT),
         (cause, TEXT),
-        (format!("Seed {}", game.seed), TEXT_DIM),
-        (String::new(), TEXT),
+        (
+            format!("Character level {}, seed {}.", game.player.level, game.seed),
+            TEXT_DIM,
+        ),
     ];
-    let recent: Vec<(String, Rgb)> = game
+    let footer: Block = vec![("Press any key to leave the dungeon.".to_string(), TEXT)];
+
+    // Heading and footer always show. The other blocks follow in
+    // order of importance while they fit, each after a blank line, and
+    // each needing at least its title and one line.
+    let mut room = h - heading.len() as i32 - 2;
+    let mut blocks = vec![(heading, true)];
+    let optional: [&dyn Fn(usize) -> Block; 3] = [
+        &|lines| death_stats(game, lines),
+        &|lines| death_scores(board, w, lines),
+        &|lines| recent_messages(game, lines),
+    ];
+    for block in optional {
+        let lines = room - 1;
+        if lines < 2 {
+            break;
+        }
+        let mut block = block(lines as usize);
+        // Builders aim to fit, but the budget is enforced here.
+        block.truncate(lines as usize);
+        room -= block.len() as i32 + 1;
+        blocks.push((block, false));
+    }
+    blocks.push((footer, true));
+
+    let total: i32 = blocks.iter().map(|(b, _)| b.len() as i32 + 1).sum::<i32>() - 1;
+    let mut y = ((h - total) / 2).max(0);
+    let text_w = |t: &str| t.chars().count() as i32;
+    for (block, centered) in &blocks {
+        // Tables share a left edge so their columns line up.
+        let block_w = block.iter().map(|(t, _)| text_w(t)).max().unwrap_or(0);
+        for (text, color) in block {
+            let line_w = if *centered { text_w(text) } else { block_w };
+            frame.print(((w - line_w) / 2).max(0), y, text, *color);
+            y += 1;
+        }
+        y += 1;
+    }
+    frame
+}
+
+/// The run in numbers, most interesting first, in at most `lines`.
+fn death_stats(game: &Game, lines: usize) -> Block {
+    let s = &game.stats;
+    let pair = |a: (&str, String), b: (&str, String)| {
+        (
+            format!("{:<15}{:>7}   {:<15}{:>7}", a.0, a.1, b.0, b.1),
+            TEXT,
+        )
+    };
+    let n = |v: u32| v.to_string();
+    let accuracy = s.accuracy().map_or("-".to_string(), |a| format!("{a}%"));
+    let mut block = vec![("The run".to_string(), GOOD)];
+    if let Some((name, count)) = s.most_killed() {
+        block.push((format!("Most slain: {name} ({count})"), TEXT));
+    }
+    if let Some(k) = s.toughest_kill {
+        block.push((
+            format!(
+                "Toughest foe slain: {} {}, on depth {}",
+                article(k.name),
+                k.name,
+                k.depth
+            ),
+            TEXT,
+        ));
+    }
+    block.extend([
+        pair(
+            ("Monsters slain", n(s.total_kills())),
+            ("Accuracy", accuracy),
+        ),
+        pair(
+            ("Damage dealt", n(s.damage_dealt)),
+            ("Damage taken", n(s.damage_taken)),
+        ),
+        pair(
+            ("Stairs taken", n(s.stairs_taken)),
+            ("Trapdoor falls", n(s.trapdoor_falls)),
+        ),
+        pair(
+            ("Items found", n(s.items_picked_up)),
+            ("Traps sprung", n(s.traps_sprung)),
+        ),
+        pair(
+            ("Potions drunk", n(s.potions_drunk)),
+            ("Scrolls read", n(s.scrolls_read)),
+        ),
+        pair(
+            ("Meals eaten", n(s.meals_eaten)),
+            ("Experience", n(game.player.xp)),
+        ),
+    ]);
+    block.truncate(lines);
+    block
+}
+
+/// The high score table in at most `lines`. Narrow terminals drop the
+/// kills and date columns. This run's row is marked, and stays in view
+/// when the table is cut short.
+fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
+    let mut block = vec![("High scores".to_string(), GOOD)];
+    if let Some(note) = board.note {
+        block.push((note.to_string(), TEXT_DIM));
+    }
+    if board.scores.is_empty() {
+        block.push(("No runs recorded yet.".to_string(), TEXT_DIM));
+        return block;
+    }
+    let wide = width >= 70;
+    let killer_w = if wide {
+        20
+    } else {
+        (width as usize).saturating_sub(34).clamp(8, 20)
+    };
+    let row = |mark: &str,
+               place: &str,
+               depth: &str,
+               level: &str,
+               turns: &str,
+               kills: &str,
+               killer: &str,
+               date: &str| {
+        let killer: String = killer.chars().take(killer_w).collect();
+        if wide {
+            format!(
+                "{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {kills:>5}  {killer:<killer_w$}  {date}"
+            )
+        } else {
+            format!("{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {killer}")
+        }
+    };
+    block.push((
+        row(
+            "  ",
+            "#",
+            "Depth",
+            "Level",
+            "Turns",
+            "Kills",
+            "Killed by",
+            "Date",
+        ),
+        TEXT_DIM,
+    ));
+    let rows: Vec<(String, Rgb)> = board
+        .scores
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let this = board.this_run == Some(i);
+            let line = row(
+                if this { "> " } else { "  " },
+                &(i + 1).to_string(),
+                &s.depth.to_string(),
+                &s.level.to_string(),
+                &s.turns.to_string(),
+                &s.kills.to_string(),
+                &s.killer,
+                &s.date,
+            );
+            (line, if this { STAIRS_FG } else { TEXT })
+        })
+        .collect();
+    let fit = lines.saturating_sub(block.len());
+    match board.this_run.filter(|&i| i >= fit && fit > 0) {
+        // Out of view: show the top of the table, then this run.
+        Some(i) => {
+            block.extend(rows[..fit - 1].iter().cloned());
+            block.push(rows[i].clone());
+        }
+        None => block.extend(rows.into_iter().take(fit)),
+    }
+    block.truncate(lines);
+    block
+}
+
+fn recent_messages(game: &Game, lines: usize) -> Block {
+    let mut block: Block = game
         .log
         .iter()
         .rev()
-        .take(6)
+        .take(lines.saturating_sub(1).min(5))
         .rev()
         .map(|m| (m.text.clone(), TEXT_DIM))
         .collect();
-    let footer = ("Press any key to leave the dungeon.".to_string(), TEXT);
-
-    let total = lines.len() + recent.len() + 2;
-    let mut y = ((h - total as i32) / 2).max(0);
-    for (text, color) in lines.iter().chain(&recent) {
-        frame.print(center(text), y, text, *color);
-        y += 1;
-    }
-    y += 1;
-    frame.print(center(&footer.0), y, &footer.0, footer.1);
-    frame
+    block.insert(0, ("Last messages".to_string(), GOOD));
+    block
 }
 
 #[cfg(test)]
@@ -776,14 +965,135 @@ mod tests {
         }
     }
 
-    #[test]
-    fn death_screen_shows_the_cause() {
+    /// A dead player with some history, and a full score list with
+    /// this run in eighth place.
+    fn death_fixture() -> (Game, Vec<Score>) {
+        use crate::stats::Kill;
         let mut game = Game::new(1);
-        game.death = Some("a rat".to_string());
-        let frame = draw_death(&game, 80, 24);
-        let text: String = (0..24).map(|y| row_text(&frame, y)).collect();
+        game.death = Some("a troll".to_string());
+        for (name, xp) in [("orc", 10), ("orc", 10), ("troll", 40)] {
+            game.stats.record_kill(Kill { name, xp, depth: 7 });
+        }
+        game.stats.hits = 3;
+        game.stats.misses = 1;
+        let scores = (0..10)
+            .map(|i| Score {
+                depth: 20 - i,
+                level: 10,
+                turns: 1000,
+                kills: 50,
+                seed: i as u64,
+                date: "2026-09-29".to_string(),
+                killer: if i == 7 { "a troll" } else { "an orc" }.to_string(),
+            })
+            .collect();
+        (game, scores)
+    }
+
+    fn screen_text(frame: &Frame) -> Vec<String> {
+        (0..frame.height).map(|y| row_text(frame, y)).collect()
+    }
+
+    #[test]
+    fn death_screen_shows_the_cause_stats_and_scores() {
+        let (game, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: Some(7),
+            note: None,
+        };
+        let text = screen_text(&draw_death(&game, &board, 80, 30)).join("\n");
         assert!(text.contains("You have died."));
-        assert!(text.contains("Killed by a rat"));
+        assert!(text.contains("Killed by a troll"));
+        assert!(text.contains("Most slain: orc (2)"), "{text}");
+        assert!(text.contains("Toughest foe slain: a troll, on depth 7"));
+        assert!(text.contains("Accuracy") && text.contains("75%"));
+        assert!(text.contains("High scores"));
+        assert!(text.contains(">  8"), "this run is marked\n{text}");
+        assert!(text.contains("Press any key"));
+    }
+
+    #[test]
+    fn a_small_death_screen_keeps_this_run_in_view() {
+        let (game, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: Some(7),
+            note: None,
+        };
+        let (w, h) = (MIN_WIDTH, 24);
+        let lines = screen_text(&draw_death(&game, &board, w, h));
+        let text = lines.join("\n");
+        assert!(text.contains(">  8"), "this run is still shown\n{text}");
+        assert!(text.contains("Press any key"));
+        // Nothing runs off the right edge: the last column only ever
+        // holds the end of a line, never the middle of a word.
+        for line in &lines {
+            assert!(line.trim_end().chars().count() <= w as usize, "{line}");
+        }
+    }
+
+    #[test]
+    fn the_smallest_death_screen_still_shows_the_essentials() {
+        let (game, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: None,
+            note: Some("The bot played this run, so it isn't recorded."),
+        };
+        let text = screen_text(&draw_death(&game, &board, MIN_WIDTH, MIN_HEIGHT)).join("\n");
+        assert!(text.contains("Killed by a troll"));
+        assert!(text.contains("Monsters slain"), "{text}");
+        assert!(text.contains("Press any key"));
+    }
+
+    /// Found by the Codex review: with no scores yet and a note, the
+    /// score block once ran over its space and hid the prompt.
+    #[test]
+    fn the_prompt_always_shows_on_every_supported_size() {
+        let (game, scores) = death_fixture();
+        let note = Some("The bot played this run, so it isn't recorded.");
+        let boards = [
+            Board {
+                scores: &[],
+                this_run: None,
+                note,
+            },
+            Board {
+                scores: &scores,
+                this_run: Some(9),
+                note,
+            },
+        ];
+        for board in &boards {
+            for h in MIN_HEIGHT..=45 {
+                for w in [MIN_WIDTH, 64, 80, 120] {
+                    let lines = screen_text(&draw_death(&game, board, w, h));
+                    assert!(
+                        lines.iter().any(|l| l.contains("Press any key")),
+                        "{w}x{h}\n{}",
+                        lines.join("\n")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "prints sample death screens; run with --ignored --nocapture"]
+    fn show_death_screens() {
+        let (game, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: Some(7),
+            note: None,
+        };
+        for (w, h) in [(80, 24), (100, 40), (MIN_WIDTH, MIN_HEIGHT)] {
+            println!("--- {w}x{h}");
+            for line in screen_text(&draw_death(&game, &board, w, h)) {
+                println!("|{line}|");
+            }
+        }
     }
 
     #[test]

@@ -60,6 +60,7 @@ impl Game {
         let name = self.lore.with_article(&item);
         match self.player.add_item(item) {
             Ok(letter) => {
+                self.stats.items_picked_up += 1;
                 self.log(&format!("You pick up {name} ({letter})."));
                 Outcome::TookTurn
             }
@@ -194,6 +195,7 @@ impl Game {
             return Outcome::Free;
         }
         self.player.take_one(letter);
+        self.stats.meals_eaten += 1;
         self.player.food = (self.player.food + kind.nutrition()).min(FOOD_MAX);
         match kind {
             crate::item::FoodKind::Ration => {
@@ -210,6 +212,7 @@ impl Game {
             return Outcome::Free;
         };
         self.player.take_one(letter);
+        self.stats.potions_drunk += 1;
         self.learn(ItemKind::Potion(kind));
         let p = &mut self.player;
         match kind {
@@ -231,7 +234,7 @@ impl Game {
             }
             PotionKind::Decay => {
                 let damage = self.rng.range(DECAY_DAMAGE.0, DECAY_DAMAGE.1 + 1);
-                self.player.hp -= damage;
+                self.hurt_player(damage);
                 self.log_as(
                     &format!("The potion burns like acid! You take {damage} damage."),
                     MsgKind::Bad,
@@ -267,6 +270,7 @@ impl Game {
             return Outcome::Free;
         }
         self.player.take_one(letter);
+        self.stats.scrolls_read += 1;
         self.learn(ItemKind::Scroll(kind));
 
         match (kind, target) {

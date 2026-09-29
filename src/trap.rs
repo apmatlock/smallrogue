@@ -131,11 +131,12 @@ impl Game {
         let pos = self.player.pos;
         let index = self.traps.iter().position(|t| t.pos == pos)?;
         self.traps[index].known = true;
+        self.stats.traps_sprung += 1;
         let kind = self.traps[index].kind;
         match kind {
             TrapKind::Dart => {
                 let damage = self.rng.range(2, 6) + self.depth as i32 / 3;
-                self.player.hp -= damage;
+                self.hurt_player(damage);
                 self.log_as(
                     &format!("A dart shoots out of the wall! You take {damage} damage."),
                     MsgKind::Bad,
@@ -163,7 +164,7 @@ impl Game {
             }
             TrapKind::Trapdoor => {
                 let damage = self.rng.range(1, 4);
-                self.player.hp -= damage;
+                self.hurt_player(damage);
                 self.log_as(
                     &format!("A trapdoor opens beneath you! You fall and take {damage} damage."),
                     MsgKind::Bad,
@@ -173,6 +174,7 @@ impl Game {
                     return None;
                 }
                 self.enter_floor(self.depth + 1);
+                self.stats.trapdoor_falls += 1;
                 self.log(&format!("You land on depth {}.", self.depth));
                 return Some(Outcome::NewFloor);
             }
@@ -244,6 +246,8 @@ mod tests {
         assert_eq!(game.player.pos, spot);
         assert!(game.player.hp < hp);
         assert!(game.known_trap_at(spot));
+        assert_eq!(game.stats.damage_taken, (hp - game.player.hp) as u32);
+        assert_eq!(game.stats.traps_sprung, 1);
     }
 
     #[test]
@@ -283,6 +287,8 @@ mod tests {
         game.apply(Action::Move(EAST));
         assert_eq!(game.depth, 2);
         assert!(game.map.tile(game.player.pos).is_walkable());
+        assert_eq!(game.stats.trapdoor_falls, 1);
+        assert_eq!(game.stats.stairs_taken, 0);
     }
 
     #[test]

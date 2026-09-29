@@ -4,7 +4,11 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-09-29 (third session)
 
-Last commit: bot memory with a Fetch plan. Next up: Milestone 11 (themed zones), or a balance pass first (see below).
+Last commit: run stats and high scores on the death screen. Next up: Milestone 11 (themed zones), or a balance pass first (see below).
+
+### Death screen stats and high scores
+
+The death screen now shows the run in numbers (`src/stats.rs`: kills by monster, most slain, toughest foe, accuracy, damage dealt and taken, stairs and trapdoors, items, potions, scrolls, meals) and the high score list (`src/scores.rs`), with this run marked. Scores are ranked by depth, then fewer turns, top 10, saved in `~/.local/share/smallrogue/scores.tsv` (or under `$XDG_DATA_HOME`). Runs the bot played any part of aren't recorded. Blocks drop out in order (messages, then scores) on small terminals so the cause, stats and prompt always show.
 
 ### Fetch plan: kept
 
@@ -45,7 +49,7 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 ### Next step
 
 1. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
-2. **Milestone 12: polish and balance.** High scores, help, final tuning; the late game needs to be harder (see the balance note above).
+2. **Milestone 12: polish and balance.** Help, final tuning (high scores are done); the late game needs to be harder (see the balance note above).
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
