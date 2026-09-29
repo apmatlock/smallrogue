@@ -159,7 +159,7 @@ After asking Codex how to make the bot more successful, four small changes that 
 - **Rejected: stop resting near sleeping monsters.** Codex expected fewer wake-ups; the median dropped from 15 to 14, so the bot still rests.
 - **Kept: unknown scrolls only with nothing in sight,** so an aggravate scroll wakes the floor at a safer moment, and as a last-ditch gamble when cornered at 20% health or less. Median 15 to 16.
 - **Kept: danger-aware emergencies.** The bot adds up the worst hits of adjacent monsters and fast hunters two tiles away (known from each monster's kind and the depth). It teleports when surrounded or when a healing potion wouldn't cover a worst-case turn, drinks healing otherwise, and saves potions of life for emergencies or a quiet moment at half health.
-- **Fresh-seed result:** 80 runs deeper, 52 shallower, 68 unchanged; 178 deaths down to 174; median unchanged at 14. The larger gains Codex suggested (fighting from corridors, committed escapes, closing doors on pursuers, supply detours) need the bot to remember a plan between turns.
+- **Fresh-seed result** (after a Codex fix so fast monsters count for two attacks and healing is capped at full health): 85 runs deeper, 62 shallower, 53 unchanged; 178 deaths down to 172; average depth 22.8 to 23.1; median unchanged at 14. The larger gains Codex suggested (fighting from corridors, committed escapes, closing doors on pursuers, supply detours) need the bot to remember a plan between turns.
 
 ## Later, after v1
 
