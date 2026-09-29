@@ -14,6 +14,7 @@ pub enum Verb {
     Equip,
     Drink,
     Read,
+    Eat,
 }
 
 pub enum Command {
@@ -166,6 +167,7 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         KeyCode::Char('e') => Some(Command::Use(Verb::Equip)),
         KeyCode::Char('q') => Some(Command::Use(Verb::Drink)),
         KeyCode::Char('r') => Some(Command::Use(Verb::Read)),
+        KeyCode::Char('E') => Some(Command::Use(Verb::Eat)),
         KeyCode::Char('?') => Some(Command::Help),
         _ => None,
     }

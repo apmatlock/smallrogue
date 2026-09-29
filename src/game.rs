@@ -13,10 +13,14 @@ use crate::item::{self, FloorItem, ItemKind, PotionKind};
 use crate::lore::Lore;
 use crate::map::{Map, Tile};
 use crate::monster::{self, Ai, Monster};
-use crate::player::Player;
+use crate::player::{Hunger, Player};
 use crate::rng::{self, Rng};
 use crate::skills::{self, Attribute, Skill};
 use crate::text::article;
+use crate::trap::{self, Trap};
+
+/// A starving player loses 1 health every this many turns.
+pub const STARVING_DAMAGE_EVERY: u64 = 5;
 
 /// Turns an unknown item must be worn before revealing its enchantment,
 /// at 2 Intellect. Each point above that cuts it by 15%.
@@ -70,6 +74,7 @@ pub enum Action {
     /// Equip a weapon or armor, or take it off if already equipped.
     Equip(char),
     Drink(char),
+    Eat(char),
     /// Read a scroll. `target` is the item a scroll of enchanting
     /// should improve.
     Read {
@@ -103,6 +108,10 @@ pub struct Game {
     /// player sees, so the view is only recomputed when needed.
     pub(crate) fov_dirty: bool,
     pub items: Vec<FloorItem>,
+    pub traps: Vec<Trap>,
+    /// A known trap the player just tried to step onto. Moving the same
+    /// way again (and only that) confirms the step.
+    pub(crate) trap_warning: Option<Point>,
     /// What the player knows about items, and how unknown ones look.
     pub lore: Lore,
     /// Randomness for events during play, such as monsters waking.
@@ -126,6 +135,8 @@ impl Game {
             monster_grid: Grid::new(1, 1, false),
             fov_dirty: false,
             items: Vec::new(),
+            traps: Vec::new(),
+            trap_warning: None,
             lore: Lore::new(&mut Rng::new(rng::mix(seed, 0x4C4F_5245))),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
         };
@@ -138,7 +149,7 @@ impl Game {
     }
 
     /// Generates and moves the player onto a new floor.
-    fn enter_floor(&mut self, depth: u32) {
+    pub(crate) fn enter_floor(&mut self, depth: u32) {
         // Each floor gets its own generator seeded from (run seed,
         // depth). Floor 5 of a seed is then always the same, no matter
         // what random events happened on floors 1 to 4.
@@ -146,6 +157,7 @@ impl Game {
         let level = dungeon::generate(&mut floor_rng, &dungeon::STANDARD);
         self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth);
         self.items = item::spawn_for_floor(&mut floor_rng, &level);
+        self.traps = trap::spawn_for_floor(&mut floor_rng, &level, &self.items, depth);
         self.place_on_map(level.map, level.start);
         self.depth = depth;
     }
@@ -203,8 +215,10 @@ impl Game {
         if self.death.is_some() {
             return;
         }
+        // A trap warning only carries over to the very next action.
+        let warned = self.trap_warning.take();
         let outcome = match action {
-            Action::Move(delta) => self.move_player(delta),
+            Action::Move(delta) => self.move_player(delta, warned),
             Action::Wait => Outcome::TookTurn,
             Action::Descend => self.descend(),
             Action::Close(dir) => self.close_door(dir),
@@ -212,6 +226,7 @@ impl Game {
             Action::Drop(letter) => self.drop_item(letter),
             Action::Equip(letter) => self.equip(letter),
             Action::Drink(letter) => self.drink(letter),
+            Action::Eat(letter) => self.eat(letter),
             Action::Read { scroll, target } => self.read(scroll, target),
         };
         if outcome == Outcome::Free {
@@ -236,7 +251,7 @@ impl Game {
         }
     }
 
-    fn move_player(&mut self, delta: Point) -> Outcome {
+    fn move_player(&mut self, delta: Point, warned: Option<Point>) -> Outcome {
         let target = self.player.pos + delta;
         if let Some(i) = self.monsters.iter().position(|m| m.pos == target) {
             self.player_attack(i);
@@ -250,7 +265,18 @@ impl Game {
                 Outcome::TookTurn
             }
             tile if tile.is_walkable() => {
+                if self.known_trap_at(target) && warned != Some(target) {
+                    let name = self.trap_at(target).expect("known trap").kind.name();
+                    self.log(&format!(
+                        "There is a {name} there. Move that way again to step on it."
+                    ));
+                    self.trap_warning = Some(target);
+                    return Outcome::Free;
+                }
                 self.player.pos = target;
+                if let Some(outcome) = self.spring_trap() {
+                    return outcome;
+                }
                 if tile == Tile::StairsDown {
                     self.log("There is a staircase down here. Press > to descend.");
                 }
@@ -303,11 +329,19 @@ impl Game {
     /// Things that happen to the player every turn: healing, curses
     /// wearing off, and worn gear slowly revealing itself.
     fn player_upkeep(&mut self) {
+        self.tick_hunger();
+        if self.death.is_some() {
+            return;
+        }
+        self.search_for_traps();
         let p = &mut self.player;
-        p.regen_progress += p.regen_rate();
-        while p.regen_progress >= 100 {
-            p.regen_progress -= 100;
-            p.hp = (p.hp + 1).min(p.max_hp);
+        // A body weak from hunger doesn't heal.
+        if p.hunger() < Hunger::Weak {
+            p.regen_progress += p.regen_rate();
+            while p.regen_progress >= 100 {
+                p.regen_progress -= 100;
+                p.hp = (p.hp + 1).min(p.max_hp);
+            }
         }
 
         let threshold = self.identify_threshold();
@@ -341,6 +375,30 @@ impl Game {
                 .lore
                 .name(self.player.item(letter).expect("still worn"));
             self.log(&format!("You've worn it long enough to know it: {name}."));
+        }
+    }
+
+    /// Uses up a turn's food, warns as hunger gets worse, and hurts a
+    /// starving player.
+    fn tick_hunger(&mut self) {
+        let before = self.player.hunger();
+        self.player.food = (self.player.food - 1).max(0);
+        let now = self.player.hunger();
+        if now > before {
+            match now {
+                Hunger::Hungry => self.log("You are getting hungry."),
+                Hunger::Weak => self.log_as("You feel weak with hunger.", MsgKind::Bad),
+                Hunger::Starving => {
+                    self.log_as("You are starving! Eat something now.", MsgKind::Bad)
+                }
+                Hunger::Fed => {}
+            }
+        }
+        if now == Hunger::Starving && self.turn.is_multiple_of(STARVING_DAMAGE_EVERY) {
+            self.player.hp -= 1;
+            if self.player.hp <= 0 {
+                self.kill_player("starvation");
+            }
         }
     }
 

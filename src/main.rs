@@ -14,6 +14,7 @@
 //! - `inventory` — picking up, equipping and using items
 //! - `lore`    — what the player knows about items; item names
 //! - `text`    — small English helpers
+//! - `trap`    — hidden traps: placing, noticing and springing them
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
 //! - `ai`      — what monsters do on their turn
@@ -53,6 +54,7 @@ mod sim;
 mod skills;
 mod term;
 mod text;
+mod trap;
 mod ui;
 
 use std::io;
@@ -333,6 +335,7 @@ fn use_item(
     let is_potion = |i: &Item| matches!(i.kind, ItemKind::Potion(_));
     let is_scroll = |i: &Item| matches!(i.kind, ItemKind::Scroll(_));
     let is_gear = |i: &Item| i.kind.is_equipment();
+    let is_food = |i: &Item| matches!(i.kind, ItemKind::Food(_));
     let (title, show, none): (&str, ItemFilter, &str) = match verb {
         Verb::Drop => ("Drop what?", &|_| true, "You have nothing to drop."),
         Verb::Equip => (
@@ -342,6 +345,7 @@ fn use_item(
         ),
         Verb::Drink => ("Drink what?", &is_potion, "You have no potions."),
         Verb::Read => ("Read what?", &is_scroll, "You have no scrolls."),
+        Verb::Eat => ("Eat what?", &is_food, "You have nothing to eat."),
     };
     if !game.player.inventory.iter().any(show) {
         game.log(none);
@@ -358,6 +362,7 @@ fn use_item(
         Verb::Drop => Action::Drop(letter),
         Verb::Equip => Action::Equip(letter),
         Verb::Drink => Action::Drink(letter),
+        Verb::Eat => Action::Eat(letter),
         Verb::Read => {
             let target = if game.scroll_needs_target(letter) {
                 match choose_read_target(terminal, game, letter)? {
@@ -444,6 +449,7 @@ fn show_inventory(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
         (Some('e'), k) if k.is_equipment() => Verb::Equip,
         (Some('q'), ItemKind::Potion(_)) => Verb::Drink,
         (Some('r'), ItemKind::Scroll(_)) => Verb::Read,
+        (Some('E'), ItemKind::Food(_)) => Verb::Eat,
         _ => return Ok(()),
     };
     use_item(terminal, game, verb, Some(letter))

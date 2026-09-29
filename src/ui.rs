@@ -19,6 +19,7 @@ use crate::lore::Lore;
 use crate::map::Tile;
 use crate::menu::{self, Line};
 use crate::monster::{Ai, Monster};
+use crate::player::{FOOD_MAX, Hunger};
 use crate::skills::{self, Skill};
 
 const SIDEBAR_WIDTH: i32 = 22;
@@ -139,6 +140,7 @@ pub fn item_details(lore: &Lore, item: &Item) -> Vec<Line> {
         ItemKind::Weapon(_) | ItemKind::Armor(_) => "e) equip   d) drop",
         ItemKind::Potion(_) => "q) drink   d) drop",
         ItemKind::Scroll(_) => "r) read   d) drop",
+        ItemKind::Food(_) => "E) eat   d) drop",
     };
     lines.push(Line::new("", TEXT));
     lines.push(Line::new(actions, TEXT_DIM));
@@ -172,6 +174,10 @@ pub fn character_lines(game: &Game) -> Vec<Line> {
             TEXT,
         ),
         Line::new(format!("Health {}/{}", p.hp, p.max_hp), TEXT),
+        Line::new(
+            format!("Food {}/{FOOD_MAX} {}", p.food, p.hunger().label()),
+            TEXT,
+        ),
         Line::new(
             format!(
                 "Strength {}   Agility {}   Intellect {}",
@@ -234,6 +240,7 @@ pub fn help_lines() -> Vec<Line> {
         "d                drop",
         "q                drink a potion",
         "r                read a scroll",
+        "E                eat",
         "?                this help",
         "B                let the bot play (B again stops it)",
         "Q                quit (ends the run)",
@@ -312,6 +319,30 @@ fn draw_map(frame: &mut Frame, game: &Game, view_w: i32, view_h: i32) {
         );
     }
 
+    // Known traps, like items, stay drawn once seen.
+    for t in game.traps.iter().filter(|t| t.known) {
+        let s = t.pos - origin;
+        if s.x < 0 || s.y < 0 || s.x >= view_w || s.y >= view_h {
+            continue;
+        }
+        let fg = if game.is_visible(t.pos) {
+            t.kind.color()
+        } else if game.map.is_revealed(t.pos) {
+            t.kind.color().remembered()
+        } else {
+            continue;
+        };
+        frame.set(
+            s.x,
+            s.y,
+            Cell {
+                ch: '^',
+                fg,
+                bg: BLACK,
+            },
+        );
+    }
+
     // Monsters are only drawn while in sight. There is no memory of
     // where a monster was: it may have moved.
     for m in game.monsters.iter().filter(|m| game.is_visible(m.pos)) {
@@ -376,13 +407,11 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let width = SIDEBAR_WIDTH - 2;
     let p = &game.player;
     frame.print(x, 0, "SMALLROGUE", TITLE);
-    draw_bar(
-        frame,
-        (x, 2, width),
-        &format!("Health {}/{}", p.hp, p.max_hp),
-        (p.hp, p.max_hp),
-        TEXT,
-    );
+    // Hunger shows after the health numbers, in red once it matters.
+    let hunger = p.hunger();
+    let label = format!("Health {}/{} {}", p.hp, p.max_hp, hunger.label());
+    let label_color = if hunger >= Hunger::Weak { BAD } else { TEXT };
+    draw_bar(frame, (x, 2, width), &label, (p.hp, p.max_hp), label_color);
     frame.print(
         x,
         3,
@@ -659,29 +688,37 @@ mod tests {
         }
     }
 
+    fn attack_line(game: &Game) -> String {
+        character_lines(game)
+            .into_iter()
+            .find(|l| l.text.starts_with("Attack:"))
+            .expect("the sheet has an attack line")
+            .text
+    }
+
     /// Equipping unidentified gear must not change the sheet's numbers,
     /// or comparing before and after would identify it for free.
     #[test]
     fn character_sheet_does_not_leak_enchantments() {
         use crate::item::{Item, WeaponKind};
         let mut game = Game::new(1);
-        let before = character_lines(&game)[3].text.clone();
+        let before = attack_line(&game);
         let sword = Item::enchanted(ItemKind::Weapon(WeaponKind::Sword), 2);
         let letter = game.player.add_item(sword).unwrap();
         game.player.item_mut('a').unwrap().equipped = false;
         game.player.item_mut(letter).unwrap().equipped = true;
-        let after = character_lines(&game)[3].text.clone();
+        let after = attack_line(&game);
         assert_eq!(after.replace('?', ""), before, "the +2 shows through");
         assert!(after.contains('?'));
         game.player.item_mut(letter).unwrap().known = true;
-        assert!(!character_lines(&game)[3].text.contains('?'));
+        assert!(!attack_line(&game).contains('?'));
 
         // An unknown +0 item still gets the "?".
         let plain = Item::new(ItemKind::Weapon(WeaponKind::Mace));
         let mace = game.player.add_item(plain).unwrap();
         game.player.item_mut(letter).unwrap().equipped = false;
         game.player.item_mut(mace).unwrap().equipped = true;
-        assert!(character_lines(&game)[3].text.contains('?'));
+        assert!(attack_line(&game).contains('?'));
     }
 
     #[test]

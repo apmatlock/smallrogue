@@ -9,11 +9,11 @@
 
 use crate::game::{Action, Game};
 use crate::geom::Point;
-use crate::item::{Item, ItemKind, PotionKind, ScrollKind};
+use crate::item::{FoodKind, Item, ItemKind, PotionKind, ScrollKind};
 use crate::map::Tile;
 use crate::monster::{Ai, Monster};
 use crate::path;
-use crate::player::{PACK_SIZE, RING_SLOTS};
+use crate::player::{Hunger, PACK_SIZE, RING_SLOTS};
 
 /// Rest before exploring when below this percent of health.
 const REST_BELOW: i32 = 80;
@@ -82,13 +82,15 @@ pub fn next_action(game: &Game) -> Action {
     if let Some(action) = use_items(game, hp) {
         return action;
     }
-    if hp < REST_BELOW {
+    // Resting burns food, so only rest with food to spare.
+    let can_rest = game.player.hunger() == Hunger::Fed || has_food(game);
+    if hp < REST_BELOW && can_rest {
         return Action::Wait;
     }
     // Sleeping monsters are left alone: walking up to one can hide it
     // behind a corner, and a bot that only reacts to what it sees would
     // then step back and forth forever. Rest up in case it wakes.
-    if !asleep.is_empty() && hp < REST_NEAR_SLEEPERS {
+    if !asleep.is_empty() && hp < REST_NEAR_SLEEPERS && can_rest {
         return Action::Wait;
     }
     // Descending comes before exploring: once the stairs are known and
@@ -270,17 +272,31 @@ fn known_walkable(game: &Game, p: Point) -> bool {
     game.map.is_revealed(p) && (tile.is_walkable() || tile == Tile::DoorClosed)
 }
 
+fn has_food(game: &Game) -> bool {
+    game.player
+        .inventory
+        .iter()
+        .any(|i| matches!(i.kind, ItemKind::Food(_)))
+}
+
 /// A move toward the nearest tile where `is_goal` holds.
+///
+/// Known traps are avoided when there is another way; if a trap is the
+/// only way through, the route crosses it (the game asks for the step
+/// twice, and the bot simply repeats it).
 fn step_to(game: &Game, is_goal: impl Fn(Point) -> bool) -> Option<Action> {
     let pos = game.player.pos;
     let map = &game.map;
-    let step = path::first_step_to_any(
-        pos,
-        map.width(),
-        map.height(),
-        |p| known_walkable(game, p),
-        is_goal,
-    )?;
+    let search = |avoid_traps: bool| {
+        path::first_step_to_any(
+            pos,
+            map.width(),
+            map.height(),
+            |p| known_walkable(game, p) && !(avoid_traps && game.known_trap_at(p)),
+            &is_goal,
+        )
+    };
+    let step = search(true).or_else(|| search(false))?;
     Some(Action::Move(step - pos))
 }
 
@@ -397,6 +413,18 @@ fn improve_gear(game: &Game) -> Option<Action> {
 /// Uses helpful known items and experiments with unknown ones, but only
 /// while nothing awake is in sight.
 fn use_items(game: &Game, hp: i32) -> Option<Action> {
+    // Eat once hungry. Jerky first: save the big rations for later.
+    if game.player.hunger() >= Hunger::Hungry {
+        let food = |kind| {
+            game.player
+                .inventory
+                .iter()
+                .find(|i| i.kind == ItemKind::Food(kind))
+        };
+        if let Some(item) = food(FoodKind::Jerky).or_else(|| food(FoodKind::Ration)) {
+            return Some(Action::Eat(item.letter));
+        }
+    }
     let lore = &game.lore;
     // Scanning the map is slow-ish, so only do it when it matters.
     let still_exploring = || game.map.points().any(|p| is_frontier(game, p));
@@ -614,6 +642,30 @@ mod tests {
         game.update_fov();
         assert!(game.is_visible(blocker));
         assert_eq!(explore_step(&game), before, "the route changed");
+    }
+
+    #[test]
+    fn the_bot_eats_when_hungry_and_routes_around_known_traps() {
+        use crate::trap::{Trap, TrapKind};
+        let mut game = Game::new(4);
+        game.monsters.clear();
+        game.player.food = crate::player::HUNGRY_AT;
+        assert!(matches!(next_action(&game), Action::Eat(_)));
+        game.player.food = crate::player::FOOD_START;
+
+        // Put a known trap on the bot's next step: it should go round.
+        let Some(Action::Move(step)) = explore_step(&game) else {
+            panic!("expected a step");
+        };
+        let spot = game.player.pos + step;
+        game.traps.push(Trap {
+            pos: spot,
+            kind: TrapKind::Dart,
+            known: true,
+        });
+        if let Some(Action::Move(new_step)) = explore_step(&game) {
+            assert_ne!(game.player.pos + new_step, spot);
+        }
     }
 
     #[test]

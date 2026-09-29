@@ -43,6 +43,45 @@ pub enum ScrollKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FoodKind {
+    Ration,
+    Jerky,
+}
+
+impl FoodKind {
+    /// Name as a single item, e.g. "ration of food".
+    pub fn name(self) -> &'static str {
+        match self {
+            FoodKind::Ration => "ration of food",
+            FoodKind::Jerky => "strip of jerky",
+        }
+    }
+
+    /// Name for several, e.g. "rations of food".
+    pub fn plural(self) -> &'static str {
+        match self {
+            FoodKind::Ration => "rations of food",
+            FoodKind::Jerky => "strips of jerky",
+        }
+    }
+
+    /// How much hunger it satisfies.
+    pub fn nutrition(self) -> i32 {
+        match self {
+            FoodKind::Ration => 1_800,
+            FoodKind::Jerky => 600,
+        }
+    }
+
+    pub fn about(self) -> &'static str {
+        match self {
+            FoodKind::Ration => "A dense block of dried food. Fills you up.",
+            FoodKind::Jerky => "Tough, salty meat. Takes the edge off hunger.",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RingKind {
     Regeneration,
     Accuracy,
@@ -254,6 +293,7 @@ pub enum ItemKind {
     Potion(PotionKind),
     Scroll(ScrollKind),
     Ring(RingKind),
+    Food(FoodKind),
 }
 
 impl ItemKind {
@@ -264,12 +304,13 @@ impl ItemKind {
             Self::Potion(_) => '!',
             Self::Scroll(_) => '?',
             Self::Ring(_) => '=',
+            Self::Food(_) => '%',
         }
     }
 
-    /// Potions and scrolls of the same kind share one inventory slot.
+    /// Potions, scrolls and food of the same kind share one slot.
     pub fn stacks(self) -> bool {
-        matches!(self, Self::Potion(_) | Self::Scroll(_))
+        matches!(self, Self::Potion(_) | Self::Scroll(_) | Self::Food(_))
     }
 
     /// Things you wear or wield: they carry an enchantment, can be
@@ -418,10 +459,23 @@ pub fn random_item(rng: &mut Rng) -> Item {
     Item::enchanted(kind, enchant)
 }
 
+/// Chance per floor of finding a ration, and of finding jerky. Tuned so
+/// careful play never starves but resting forever does.
+pub const RATION_PERCENT: i32 = 25;
+pub const JERKY_PERCENT: i32 = 35;
+
 /// Scatters a few random items across a new floor, never on the stairs
-/// and never two on one tile.
+/// and never two on one tile. Food is rolled separately so its supply
+/// stays steady.
 pub fn spawn_for_floor(rng: &mut Rng, level: &Level) -> Vec<FloorItem> {
-    let count = rng.range(3, 6) as usize;
+    let mut wanted: Vec<Item> = (0..rng.range(3, 6)).map(|_| random_item(rng)).collect();
+    if rng.chance(RATION_PERCENT) {
+        wanted.push(Item::new(ItemKind::Food(FoodKind::Ration)));
+    }
+    if rng.chance(JERKY_PERCENT) {
+        wanted.push(Item::new(ItemKind::Food(FoodKind::Jerky)));
+    }
+    let count = wanted.len();
     let mut items: Vec<FloorItem> = Vec::new();
     for _ in 0..count * 3 {
         if items.len() == count {
@@ -432,7 +486,7 @@ pub fn spawn_for_floor(rng: &mut Rng, level: &Level) -> Vec<FloorItem> {
         let free =
             level.map.tile(pos) == crate::map::Tile::Floor && items.iter().all(|i| i.pos != pos);
         if free {
-            let item = random_item(rng);
+            let item = wanted[items.len()].clone();
             items.push(FloorItem { pos, item });
         }
     }

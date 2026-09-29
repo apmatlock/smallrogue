@@ -8,7 +8,7 @@ use crate::geom::{DIRECTIONS_8, Point};
 use crate::item::{FloorItem, Item, ItemKind, PotionKind, ScrollKind};
 use crate::lore::Lore;
 use crate::monster::Ai;
-use crate::player::RING_SLOTS;
+use crate::player::{FOOD_MAX, RING_SLOTS};
 
 /// Health restored by a potion of healing.
 const HEALING: i32 = 15;
@@ -182,6 +182,28 @@ impl Game {
         Outcome::TookTurn
     }
 
+    pub(crate) fn eat(&mut self, letter: char) -> Outcome {
+        let Some(ItemKind::Food(kind)) = self.player.item(letter).map(|i| i.kind) else {
+            self.log("You can't eat that.");
+            return Outcome::Free;
+        };
+        // Refuse if more than half of it would go to waste.
+        let wasted = self.player.food + kind.nutrition() - FOOD_MAX;
+        if wasted > kind.nutrition() / 2 {
+            self.log("You're too full to eat that now.");
+            return Outcome::Free;
+        }
+        self.player.take_one(letter);
+        self.player.food = (self.player.food + kind.nutrition()).min(FOOD_MAX);
+        match kind {
+            crate::item::FoodKind::Ration => {
+                self.log_as("That food really hits the spot.", MsgKind::Good)
+            }
+            crate::item::FoodKind::Jerky => self.log("You chew the tough, salty jerky."),
+        }
+        Outcome::TookTurn
+    }
+
     pub(crate) fn drink(&mut self, letter: char) -> Outcome {
         let Some(ItemKind::Potion(kind)) = self.player.item(letter).map(|i| i.kind) else {
             self.log("You can't drink that.");
@@ -294,7 +316,7 @@ impl Game {
 
     /// Moves the player to a random free tile, preferring somewhere
     /// far from where they stand.
-    fn teleport_player(&mut self) {
+    pub(crate) fn teleport_player(&mut self) {
         let from = self.player.pos;
         let free: Vec<Point> = self
             .map
@@ -324,6 +346,10 @@ impl Game {
             if tile.is_passable() || borders_open {
                 self.map.reveal(p);
             }
+        }
+        // The map shows the floor's traps too.
+        for trap in &mut self.traps {
+            trap.known = true;
         }
     }
 }
@@ -369,9 +395,10 @@ mod tests {
         });
         game.apply(Action::Move(Point::new(1, 0)));
         assert!(game.items.is_empty());
-        let dagger = game.player.item('d').unwrap();
+        // a-d hold the starting kit, so the dagger goes to e.
+        let dagger = game.player.item('e').unwrap();
         assert_eq!(dagger.kind, ItemKind::Weapon(WeaponKind::Dagger));
-        assert_eq!(last_log(&game), "You pick up a dagger (d).");
+        assert_eq!(last_log(&game), "You pick up a dagger (e).");
         assert_eq!(game.turn, 1, "picking up is part of the step");
     }
 

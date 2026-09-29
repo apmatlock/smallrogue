@@ -48,7 +48,9 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 - **Attributes.** Strength adds melee damage and carry capacity. Agility adds accuracy and dodge. Intellect speeds identification of unknown items, and later powers magic.
 - **Skills (learn by doing).** Melee (trained by attacking: +1 accuracy per level, +1 damage per 2), Dodge (trained by being attacked: +1 dodge per level), Armor (trained by being hit while armored: +1 armor per 2 levels and 1 less heavy-armor dodge penalty per level), Stealth (trained when a sleeping monster that can see you stays asleep: -2% wake chance per level, from 25% down to 5%). Levels cost 10, 20, 30... points, up to level 10. Throwing waits until there is something to throw.
 - **Levels.** Experience per kill: rat 2, jackal 3, goblin 6, zombie 8. Level thresholds are 10, 30, 60, 100, 150... Each level gives +4 max health and one attribute point, cycling strength, agility, strength, agility, intellect.
-- **Hunger.** A food counter ticks down each turn. Hungry gives a warning, Weak gives penalties, Starving deals damage. Food is common enough that careful play never starves.
+- **Hunger.** Food starts at 1,800 (max 2,100) and drops 1 per turn. Hungry at 300 is a warning; Weak at 150 stops healing and costs 2 accuracy; Starving at 0 loses 1 health every 5 turns. Rations restore 1,800 and jerky 600. The fighter starts with one ration. Each floor has a 25% chance of a ration and 35% of jerky. Eating is refused if more than half the food would be wasted. In 200 bot runs, 3 starved: careful play basically never does.
+- **Traps.** Dart (damage), alarm (wakes monsters within 20 tiles), teleport, and trapdoor (drops a floor with a little damage). 1 plus depth/3 per floor, up to 6, never in the start room. Hidden traps within 1 tile (plus awareness) are noticed at 15% per turn (plus 10% per awareness point). Magic mapping reveals traps. Stepping onto a known trap needs a second, identical move. Only the player sets traps off.
+- **Balance with hunger:** median final depth 16, median death depth 14, and runs outlasting the turn cap fell from 36% to 22%. The remaining survivors dive fast enough that floor food covers them; monster abilities are the next source of pressure.
 
 ### Combat
 - Bump into a monster to attack.
@@ -103,7 +105,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 6 | Items and inventory | Pick up, drop, equip weapons and armor, drink potions, read scrolls ✅ |
 | 7 | Identification | Unknown potions, scrolls and enchantments, rings, soft curses, scroll of identify ✅ |
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use ✅ |
-| 9 | Hunger and traps | Food clock and hidden traps |
+| 9 | Hunger and traps | Food clock and hidden traps ✅ |
 | 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs |
 | 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where |
 | 12 | Polish and balance | High scores, help screen, tuning so runs last 10–20 minutes |

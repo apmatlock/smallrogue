@@ -48,6 +48,7 @@ const SYLLABLES: [&str; 20] = [
 const WEAPON_COLOR: Rgb = Rgb(170, 175, 195);
 const ARMOR_COLOR: Rgb = Rgb(160, 135, 100);
 const SCROLL_COLOR: Rgb = Rgb(225, 215, 185);
+const FOOD_COLOR: Rgb = Rgb(190, 140, 90);
 
 pub struct Lore {
     /// Index into `POTION_LOOKS` for each potion kind, by position in
@@ -102,7 +103,7 @@ impl Lore {
     /// Does the player know what this kind of item is?
     pub fn knows(&self, kind: ItemKind) -> bool {
         match kind {
-            ItemKind::Weapon(_) | ItemKind::Armor(_) => true,
+            ItemKind::Weapon(_) | ItemKind::Armor(_) | ItemKind::Food(_) => true,
             _ => self.known.contains(&kind),
         }
     }
@@ -110,7 +111,7 @@ impl Lore {
     /// Learns a kind. Returns true if it wasn't already known.
     pub fn learn(&mut self, kind: ItemKind) -> bool {
         match kind {
-            ItemKind::Weapon(_) | ItemKind::Armor(_) => false,
+            ItemKind::Weapon(_) | ItemKind::Armor(_) | ItemKind::Food(_) => false,
             _ => self.known.insert(kind),
         }
     }
@@ -141,6 +142,7 @@ impl Lore {
             ItemKind::Potion(p) => self.potion_look(p).1,
             ItemKind::Scroll(_) => SCROLL_COLOR,
             ItemKind::Ring(r) => self.ring_gem(r).1,
+            ItemKind::Food(_) => FOOD_COLOR,
         }
     }
 
@@ -169,6 +171,8 @@ impl Lore {
                 format!("scroll{s} of {}", k.stats().name)
             }
             ItemKind::Scroll(k) => format!("scroll{s} titled \"{}\"", self.scroll_title(k)),
+            ItemKind::Food(f) if plural => f.plural().to_string(),
+            ItemKind::Food(f) => f.name().to_string(),
         };
         if plural {
             format!("{} {name}", item.count)
@@ -196,6 +200,7 @@ impl Lore {
             ItemKind::Potion(p) => format!("potion of {}", p.stats().name),
             ItemKind::Scroll(s) => format!("scroll of {}", s.stats().name),
             ItemKind::Ring(r) => format!("ring of {}", r.stats().name),
+            ItemKind::Food(f) => f.name().to_string(),
         }
     }
 
@@ -250,6 +255,7 @@ impl Lore {
             }
             ItemKind::Scroll(k) if self.knows(item.kind) => vec![k.stats().about.to_string()],
             ItemKind::Scroll(_) => vec!["Reading it will reveal what it does.".into()],
+            ItemKind::Food(f) => vec![f.about().to_string()],
         };
         if item.is_stuck() && item.known {
             lines.push(format!(

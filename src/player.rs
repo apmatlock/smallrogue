@@ -2,7 +2,7 @@
 
 use crate::combat::{Attack, Defense};
 use crate::geom::Point;
-use crate::item::{ArmorKind, Item, ItemKind, PotionKind, RingKind, WeaponKind};
+use crate::item::{ArmorKind, FoodKind, Item, ItemKind, PotionKind, RingKind, WeaponKind};
 use crate::skills::{Skill, Skills};
 
 /// One slot per letter, a to z.
@@ -13,6 +13,40 @@ pub const RING_SLOTS: usize = 2;
 
 /// How far the player sees without a ring of awareness.
 pub const BASE_SIGHT: i32 = 8;
+
+/// Food: each turn uses 1. Eating adds the food's nutrition, up to the
+/// maximum.
+pub const FOOD_MAX: i32 = 2_100;
+pub const FOOD_START: i32 = 1_800;
+/// At or below these levels the player is hungry, then weak.
+pub const HUNGRY_AT: i32 = 300;
+pub const WEAK_AT: i32 = 150;
+/// Accuracy lost while weak from hunger.
+pub const WEAK_ACCURACY_PENALTY: i32 = 2;
+
+/// How hungry the player is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Hunger {
+    Fed,
+    /// Just a warning.
+    Hungry,
+    /// No healing, and less accurate.
+    Weak,
+    /// Losing health until something is eaten.
+    Starving,
+}
+
+impl Hunger {
+    /// The word shown on screen, or "" when fed.
+    pub fn label(self) -> &'static str {
+        match self {
+            Hunger::Fed => "",
+            Hunger::Hungry => "Hungry",
+            Hunger::Weak => "Weak",
+            Hunger::Starving => "Starving",
+        }
+    }
+}
 
 /// Healing builds up by this much each turn; every 100 heals 1 health,
 /// so about 1 health every 8 turns.
@@ -39,6 +73,8 @@ pub struct Player {
     /// Total experience earned this run.
     pub xp: u32,
     pub skills: Skills,
+    /// Nutrition left; see `FOOD_MAX`.
+    pub food: i32,
 }
 
 impl Player {
@@ -57,11 +93,13 @@ impl Player {
             level: 1,
             xp: 0,
             skills: Skills::default(),
+            food: FOOD_START,
         };
         let kit = [
             ItemKind::Weapon(WeaponKind::Sword),
             ItemKind::Armor(ArmorKind::Leather),
             ItemKind::Potion(PotionKind::Healing),
+            ItemKind::Food(FoodKind::Ration),
         ];
         for kind in kit {
             let mut item = Item::new(kind);
@@ -116,6 +154,15 @@ impl Player {
         (BASE_REGEN + 6 * self.ring_bonus(RingKind::Regeneration)).max(2)
     }
 
+    pub fn hunger(&self) -> Hunger {
+        match self.food {
+            f if f <= 0 => Hunger::Starving,
+            f if f <= WEAK_AT => Hunger::Weak,
+            f if f <= HUNGRY_AT => Hunger::Hungry,
+            _ => Hunger::Fed,
+        }
+    }
+
     pub fn skill(&self, skill: Skill) -> i32 {
         self.skills.level(skill) as i32
     }
@@ -137,13 +184,21 @@ impl Player {
         let min = (damage.0 + bonus + enchant).max(1);
         let max = (damage.1 + bonus + enchant).max(min);
         Attack {
-            accuracy: 1
+            accuracy: 1 - self.weak_penalty()
                 + self.agility
                 + accuracy
                 + enchant
                 + melee
                 + self.ring_bonus(RingKind::Accuracy),
             damage: (min, max),
+        }
+    }
+
+    fn weak_penalty(&self) -> i32 {
+        if self.hunger() >= Hunger::Weak {
+            WEAK_ACCURACY_PENALTY
+        } else {
+            0
         }
     }
 
@@ -260,9 +315,10 @@ mod tests {
     fn letters_stay_put_when_items_leave() {
         let mut p = Player::fighter(Point::default());
         let dagger = Item::new(ItemKind::Weapon(WeaponKind::Dagger));
-        assert_eq!(p.add_item(dagger.clone()), Ok('d'));
+        // a-d hold the starting kit.
+        assert_eq!(p.add_item(dagger.clone()), Ok('e'));
         p.remove_item('b');
-        assert!(p.item('d').is_some(), "d keeps its letter");
+        assert!(p.item('e').is_some(), "e keeps its letter");
         assert_eq!(p.add_item(dagger), Ok('b'), "the gap is reused");
     }
 
@@ -349,6 +405,20 @@ mod tests {
         assert_eq!(p.defense().armor, 5 + 1);
         p.skills.train(Skill::Armor, 30 + 40 + 50); // level 5
         assert_eq!(p.defense().dodge, 3, "the penalty never turns into a bonus");
+    }
+
+    #[test]
+    fn hunger_stages() {
+        let mut p = Player::fighter(Point::default());
+        assert_eq!(p.hunger(), Hunger::Fed);
+        let accuracy = p.attack().accuracy;
+        p.food = HUNGRY_AT;
+        assert_eq!(p.hunger(), Hunger::Hungry);
+        p.food = WEAK_AT;
+        assert_eq!(p.hunger(), Hunger::Weak);
+        assert_eq!(p.attack().accuracy, accuracy - WEAK_ACCURACY_PENALTY);
+        p.food = 0;
+        assert_eq!(p.hunger(), Hunger::Starving);
     }
 
     #[test]

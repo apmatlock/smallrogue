@@ -2,7 +2,7 @@
 
 A grim, fast, endless dungeon crawler for the terminal, written in Rust. Descend through randomly generated rooms and corridors, fight what lives there, and use what you find. There is no bottom: how deep you get is your score.
 
-The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, items with an inventory, item identification, and character growth all work. Hunger, traps, themed zones and high scores are still to come.
+The game is an early playable prototype. Dungeon generation, field of view, monsters, combat, death, items with an inventory, item identification, character growth, monsters that scale with depth, hunger and traps all work. Monster abilities, themed zones and high scores are still to come.
 
 ## Build and run
 
@@ -70,6 +70,7 @@ This plays seeds 1 to 200 and prints the average, median and best depth reached,
 | `d` | Drop an item |
 | `q` | Drink a potion |
 | `r` | Read a scroll |
+| `E` | Eat |
 | `?` | Show all keys |
 | `B` | Let the bot play; `B` or Escape takes control back |
 | `Q` | Quit, after confirming with `y`. Quitting ends the run. |
@@ -97,6 +98,8 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 | `!` | Potion |
 | `?` | Scroll |
 | `=` | Ring |
+| `%` | Food |
+| `^` | A trap you know about |
 
 Walls and closed doors block sight. What you can see is drawn in full color. Places you have explored stay on screen in cold, dim colors, along with the items lying there. Monsters are only shown while in sight.
 
@@ -125,6 +128,10 @@ The sidebar shows your health, attributes, depth, turn, seed and equipment, then
 
 **Identification.** Potions, scrolls and rings look different in every run: a murky potion might heal you in one game and burn you in the next. Drinking or reading one teaches you that kind for the rest of the run, and putting on a ring tells you what kind it is. Enchantments stay hidden until you wear an item for about 300 turns (less with more Intellect) or read a scroll of identify on it.
 
+**Hunger.** Every turn uses a little food. You start with 1,800 and a ration of food. Below 300 you are hungry, below 150 you are weak (no healing, less accurate), and at 0 you start starving and lose health until you eat. Rations and strips of jerky turn up on many floors; eat with `E`. The game won't let you eat when most of the food would go to waste.
+
+**Traps** hide on the floor: darts that hurt, alarms that wake everything nearby, teleport traps, and trapdoors that drop you a floor. Standing next to a hidden trap gives you a chance each turn to notice it, better with a ring of awareness, and magic mapping shows every trap. Known traps are drawn as `^`; stepping onto one takes a second move in the same direction to confirm. Auto-explore and the bot walk around known traps.
+
 **Curses.** Gear with a negative enchantment is cursed. Once equipped, it can't be taken off for 50 turns per point below zero, and you find out the moment you put it on. Reading enchanting on a cursed item breaks the curse.
 
 Your pack holds 26 items. Potions and scrolls of the same kind stack, and each item keeps its letter while you carry it.
@@ -149,6 +156,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
 | `skills` | Skills that improve by use, experience and levels |
+| `trap` | Hidden traps: placing, noticing and springing them |
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
 | `lore` | Per-run item appearances, what the player has identified, and item names |
 | `monster`, `ai`, `path` | Monster definitions, spawning, behavior, and pathfinding |
@@ -166,7 +174,6 @@ The terminal renderer draws only changed cells, and the game waits for input wit
 
 The intended game is a grim, fast, endless fantasy crawl with short runs and depth reached as the score. Next milestones include:
 
-- Hunger and traps
 - Monster abilities: regenerating trolls, draining wraiths, thieves, gear-wreckers, splitting jellies and packs
 - Distinct themed dungeon zones
 - High scores, help, and balance
