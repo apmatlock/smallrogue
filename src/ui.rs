@@ -78,12 +78,14 @@ fn map_area(width: u16, height: u16) -> (i32, i32) {
     (view_w, view_h)
 }
 
-/// Writes a short status, like "bot playing", in the sidebar's empty
-/// second row.
+/// Writes a short status, like "BOT speed 3/7", over the sidebar's
+/// title, leaving the zone name below it in view.
 pub fn draw_status(frame: &mut Frame, text: &str) {
     if frame.width >= MIN_WIDTH && frame.height >= MIN_HEIGHT {
         let (view_w, _) = map_area(frame.width, frame.height);
-        frame.print(view_w + 2, 1, text, GOOD);
+        let width = (SIDEBAR_WIDTH - 2) as usize;
+        let line = format!("{text:<width$}");
+        frame.print(view_w + 2, 0, &line, GOOD);
     }
 }
 
@@ -1215,6 +1217,16 @@ mod tests {
         for skill in Skill::ALL {
             assert!(text.contains(skill.name()));
         }
+    }
+
+    #[test]
+    fn the_bot_status_leaves_the_zone_name_in_view() {
+        let game = Game::new(1);
+        let mut frame = draw(&game, 80, 24);
+        draw_status(&mut frame, "BOT speed 3/7");
+        assert!(row_text(&frame, 0).contains("BOT speed 3/7"));
+        assert!(!row_text(&frame, 0).contains("SMALLROGUE"));
+        assert!(row_text(&frame, 1).contains("Crypts"));
     }
 
     #[test]
