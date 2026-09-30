@@ -107,7 +107,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 8 | Growth | XP levels with health and attributes. Skills that rise through use ✅ |
 | 9 | Hunger and traps | Food clock and hidden traps ✅ |
 | 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs ✅ |
-| 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where |
+| 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where ✅ |
 | 12 | Polish and balance | Help screen, tuning so runs last 10–20 minutes (high scores done early) |
 
 ### Milestone 10 plan: monster abilities

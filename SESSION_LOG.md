@@ -4,7 +4,7 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-09-29 (third session)
 
-Last commit: Milestone 11 step 4. **Milestone 11 (themed zones) is nearly done**; the plan is in DESIGN.md.
+Last commit: Milestone 11 wrap-up. **Milestone 11 (themed zones) is done**; the plan and results are in DESIGN.md. Next up: Milestone 12 (polish and balance).
 
 ### Milestone 11 progress
 
@@ -12,7 +12,7 @@ Last commit: Milestone 11 step 4. **Milestone 11 (themed zones) is nearly done**
 - **Step 2 done** (`6b10f0d`): home monsters 4x as common in their zone, skeletons at depth 3 and draugr at 5, zone item weights (warrens: 40% rations). Fresh seeds against step 1: median 21 to 17, average 28.7 to 25.4, 85 deeper and 102 shallower. New top killers: giant spiders, vampires, oni. Turn-limit runs unchanged at 48 of 200.
 - **Step 3 done** (`7b38c97`): shallow water and themed rooms (tomb, cistern, den, larder), kept as extra risk and reward by the user's choice even though they made runs much easier (fresh median 17 to 44). Controlled tests: extra monsters and extra items each strengthen the bot; water and reshuffled rolls alone don't.
 - **Step 4 done**: `LOOP_EXTRA_FLOORS = 3` in `src/monster.rs`. Fresh seeds: median 20, average 23.7, turn-limit runs 84 to 26, 66 of 200 past the second crypts. 6 and above made loop 2 a wall.
-- **Next: step 5**, wrap-up. Then milestone 12. Open balance item: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts.
+- **Step 5 done**: Codex reviews clean on every step. Open balance item for milestone 12: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts.
 - Measuring: `target/run_zone2.sh` shows the pattern (a copied binary per version, both seed sets in parallel, `wait` on the PIDs). Latest results: `target/zone2_1.csv`, `target/zone2_fresh.csv`.
 
 ### Death screen stats and high scores
@@ -57,8 +57,7 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 
 ### Next step
 
-1. **Milestone 11: themed zones.** Crypts, flooded halls and warrens with their own floor sizes, colors, themed rooms and monster mixes, cycling with scaling. Zones also decide which monster abilities appear where.
-2. **Milestone 12: polish and balance.** Help, final tuning (high scores are done); the late game needs to be harder (see the balance note above).
+1. **Milestone 12: polish and balance.** Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
@@ -71,6 +70,7 @@ Smaller open items:
 |---|---|
 | 0-9 | Setup, map, dungeon generation, field of view, monsters and turns, combat, items, identification, growth (levels and skills), hunger and traps |
 | 10 | Monster abilities: regeneration, life drain, blood drinking, theft, acid, splitting, packs |
+| 11 | Themed zones: Crypts, Flooded Halls, Deep Warrens; themed rooms and shallow water; loops with extra scaling |
 | Extras | Bot, auto-explore (`x`), stair travel (`>`), watchable bot (`--bot`, `B`), headless balance runs (`--simulate N`); monsters scale with depth; 31 monster kinds; food bar; bot memory with Escape and Fetch |
 
 ## Balance, as of the last measurement
