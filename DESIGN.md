@@ -237,6 +237,10 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 **Part B: balance.** Vampires (about a fifth of fresh deaths, mostly in loop 2's crypts): try blood drinking at half damage, speed 125 to 100, or unlock depth 18 to 21, and keep the smallest change that removes the spike. Then run length, from the user timing a few runs. Recheck: median near 15-20, few turn-limit runs, no monster above about 10% of deaths.
 
+**Built so far.**
+- Part A done: help pages, message history (`m`), look (`L` or `;`), a title screen, time played, and quitting on the high scores.
+- Vampires: speed 125 to 100, and blood drinking heals half the damage dealt. Tested one at a time on fresh seeds: half healing alone took vampire deaths from 41 to 34, speed alone to 23, a later unlock (depth 21) to 24 but shifted the median to 22. Both together: 19 vampire deaths, median 21, average 25.9, 28 runs at the turn limit; wraiths (23) now lead a flatter list of killers.
+
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
 
 ## Later, after v1

@@ -1292,7 +1292,7 @@ mod tests {
         game.update_fov();
         let text: Vec<String> = look_lines(&game).into_iter().map(|l| l.text).collect();
         assert_eq!(text[0], "V vampire, asleep, hurt");
-        assert_eq!(text[1], "  fast, heals over time, heals by biting");
+        assert_eq!(text[1], "  heals over time, heals by biting");
         assert!(text[2].starts_with("% "), "{text:?}");
         assert_eq!(text[3], "^ a dart trap");
     }

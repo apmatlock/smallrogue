@@ -482,7 +482,7 @@ impl Kind {
                 name: "vampire",
                 glyph: 'V',
                 color: Rgb(195, 40, 65),
-                speed: 125,
+                speed: 100,
                 sight: 8,
                 opens_doors: true,
                 min_depth: 18,

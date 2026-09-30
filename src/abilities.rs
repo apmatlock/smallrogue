@@ -66,12 +66,14 @@ impl Game {
         );
     }
 
-    /// A blood-drinking hit heals the attacker by the damage it dealt.
+    /// A blood-drinking hit heals the attacker by half the damage it
+    /// dealt. (All of it made vampires the top killer by far: 41 of 200
+    /// fresh runs, against 19 with half and a normal speed.)
     pub(crate) fn drink_blood(&mut self, i: usize, damage: i32) {
         let m = &mut self.monsters[i];
         let max = m.max_hp();
         if m.hp < max {
-            m.hp = (m.hp + damage).min(max);
+            m.hp = (m.hp + damage / 2).min(max);
             let name = m.name();
             self.log(&format!("The {name} drinks your blood and looks stronger."));
         }
@@ -231,6 +233,19 @@ mod tests {
         game.monsters.push(wraith);
         wait_until(&mut game, |g| g.player.max_hp < 500);
         assert!(game.player.max_hp < 500);
+    }
+
+    #[test]
+    fn vampires_heal_by_half_the_blood_they_draw() {
+        let mut game = room_game();
+        let mut vampire = hunter(&game, Kind::Vampire, Point::new(3, 5));
+        vampire.hp = 1;
+        game.monsters.push(vampire);
+        game.drink_blood(0, 9);
+        assert_eq!(game.monsters[0].hp, 1 + 4);
+        // Never past full health.
+        game.drink_blood(0, 1000);
+        assert_eq!(game.monsters[0].hp, game.monsters[0].max_hp());
     }
 
     #[test]

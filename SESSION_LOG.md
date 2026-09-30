@@ -57,7 +57,7 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 
 ### Next step
 
-1. **Milestone 12: polish and balance.** Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
+1. **Milestone 12: polish and balance, in progress.** Part A (readability) is done and pushed; vampires are tuned (speed 100, half blood healing). Left: run length from the user timing real runs (time played is now on the death screen and in the scores file), then Part C (README, wrap-up). Earlier notes: Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
@@ -79,10 +79,10 @@ Measured with the bot, which plays like a careful beginner. Target set by the us
 
 | Measure (200 fresh seeds, 1001-1200) | Value |
 |---|---|
-| Median final depth | 20 |
-| Average final depth | 23.7 |
-| Deaths | 174 of 200 (26 hit the turn limit) |
-| Top killers | vampires (41), jackals, frost giants, wraiths, oni |
+| Median final depth | 21 |
+| Average final depth | 25.9 |
+| Deaths | 172 of 200 (28 hit the turn limit) |
+| Top killers | wraiths (23), vampires (19), jackals (14), frost giants (11) |
 
 The tuning knobs are constants at the top of `src/monster.rs` (scaling, loop scaling, home weight, alertness, monster count), `src/zone.rs` (zone floors, homes, item weights, themes), `src/themed.rs` and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
 
