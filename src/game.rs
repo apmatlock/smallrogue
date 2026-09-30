@@ -94,6 +94,8 @@ pub struct Game {
     /// Set when the player dies, naming what did it, e.g. "a jackal".
     /// Once set, the game ignores further actions.
     pub death: Option<String>,
+    /// The run ended by quitting rather than dying.
+    pub gave_up: bool,
     pub turn: u64,
     pub depth: u32,
     /// The run's seed. Each floor's layout is derived from it, so the
@@ -132,6 +134,7 @@ impl Game {
             player: Player::fighter(Point::default()),
             log: Vec::new(),
             death: None,
+            gave_up: false,
             turn: 0,
             depth: 0,
             seed,
@@ -594,10 +597,23 @@ impl Game {
     /// count includes the fatal turn.
     pub fn death_summary(&self) -> Option<String> {
         let killer = self.death.as_ref()?;
+        let how = if self.gave_up {
+            "Gave up".to_string()
+        } else {
+            format!("Killed by {killer}")
+        };
         Some(format!(
-            "Killed by {killer} on depth {} after {} turns.",
+            "{how} on depth {} after {} turns.",
             self.depth, self.turn
         ))
+    }
+
+    /// Ends the run by quitting. It still counts as a finished run, so
+    /// quitting before a bad death can't keep a score off the list.
+    pub fn give_up(&mut self) {
+        self.log("You give up.");
+        self.death = Some("gave up".to_string());
+        self.gave_up = true;
     }
 
     pub fn monster_at(&self, p: Point) -> Option<&Monster> {

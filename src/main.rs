@@ -69,7 +69,7 @@ mod zone;
 
 use std::io;
 use std::process::ExitCode;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use game::{Action, Game};
 use input::{Command, Polled, Verb};
@@ -96,7 +96,7 @@ fn main() -> ExitCode {
             }
             sim::simulate(runs, options.seed.unwrap_or(1), &options.csv)
         }
-        None => run(options.seed.unwrap_or_else(clock_seed), options.bot),
+        None => run(options.seed, options.bot),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -151,6 +151,33 @@ fn record_score(
     (list, place, note)
 }
 
+/// Real time spent playing a run. A long gap between two moves counts
+/// as `IDLE_CAP` at most, so walking away doesn't pad the time.
+struct PlayClock {
+    played: Duration,
+    last: Instant,
+}
+
+const IDLE_CAP: Duration = Duration::from_secs(60);
+
+impl PlayClock {
+    fn new() -> Self {
+        Self {
+            played: Duration::ZERO,
+            last: Instant::now(),
+        }
+    }
+
+    /// Adds the time since the last tick and returns the total, in
+    /// whole seconds.
+    fn tick(&mut self) -> u64 {
+        let now = Instant::now();
+        self.played += (now - self.last).min(IDLE_CAP);
+        self.last = now;
+        self.played.as_secs()
+    }
+}
+
 /// Delay between bot moves at each speed setting, slowest first.
 const BOT_SPEEDS_MS: [u64; 7] = [500, 250, 120, 60, 25, 8, 0];
 
@@ -185,8 +212,60 @@ impl Autoplay {
     }
 }
 
-fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
+/// Plays in the terminal. With a seed or the bot asked for, plays that
+/// one run; otherwise the title screen offers run after run.
+fn run(seed: Option<u64>, start_with_bot: bool) -> io::Result<()> {
     let mut terminal = Terminal::new()?;
+    if seed.is_some() || start_with_bot {
+        return play(
+            &mut terminal,
+            seed.unwrap_or_else(clock_seed),
+            start_with_bot,
+        );
+    }
+    loop {
+        let best = scores::default_path()
+            .and_then(|p| scores::load(&p).ok())
+            .and_then(|list| list.into_iter().next());
+        let (w, h) = terminal.size()?;
+        terminal.present(ui::draw_title(best.as_ref(), w, h))?;
+        match input::next_menu_key()? {
+            Some('n') => play(&mut terminal, clock_seed(), false)?,
+            Some('s') => show_scores(&mut terminal)?,
+            Some('?') => {
+                show_box_over(&mut terminal, &ui::draw_blank, "Help", &ui::help_lines())?;
+            }
+            Some('q' | 'Q') => return Ok(()),
+            // Anything else, including a resize, just redraws.
+            _ => {}
+        }
+    }
+}
+
+/// The saved high scores on a screen of their own.
+fn show_scores(terminal: &mut Terminal) -> io::Result<()> {
+    let (list, note) = match scores::default_path().map(|p| scores::load(&p)) {
+        Some(Ok(list)) => (list, None),
+        Some(Err(e)) => (Vec::new(), Some(format!("Couldn't read the scores: {e}"))),
+        None => (
+            Vec::new(),
+            Some("No home directory to keep scores in.".to_string()),
+        ),
+    };
+    let board = ui::Board {
+        scores: &list,
+        this_run: None,
+        note: note.as_deref(),
+    };
+    let (w, h) = terminal.size()?;
+    terminal.present(ui::draw_scores(&board, w, h))?;
+    input::next_menu_key()?;
+    Ok(())
+}
+
+/// Plays one run from `seed` until death or giving up, ending on the
+/// death screen.
+fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<()> {
     let mut game = Game::new(seed);
     let mut autoplay = None;
     if start_with_bot {
@@ -196,12 +275,14 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
     // Whether the bot played any part of this run. Such runs don't
     // go on the high score list.
     let mut bot_played = false;
+    let mut clock = PlayClock::new();
 
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
         bot_played |= autoplay.is_some();
+        game.stats.seconds_played = clock.tick();
         let status = autoplay.as_ref().map(Autoplay::status);
-        draw_with_status(&mut terminal, &game, status.as_deref())?;
+        draw_with_status(terminal, &game, status.as_deref())?;
 
         if game.death.is_some() {
             let (scores, this_run, note) = record_score(&game, bot_played);
@@ -213,7 +294,7 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
             let (w, h) = terminal.size()?;
             terminal.present(ui::draw_death(&game, &board, w, h))?;
             input::wait_for_any_key()?;
-            break;
+            return Ok(());
         }
 
         if let Some(bot) = autoplay.as_mut() {
@@ -249,43 +330,39 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
 
         match input::next_command()? {
             Command::Act(action) => game.apply(action),
-            Command::Close => close_door(&mut terminal, &mut game)?,
-            Command::Use(verb) => use_item(&mut terminal, &mut game, verb, None)?,
-            Command::Inventory => show_inventory(&mut terminal, &mut game)?,
+            Command::Close => close_door(terminal, &mut game)?,
+            Command::Use(verb) => use_item(terminal, &mut game, verb, None)?,
+            Command::Inventory => show_inventory(terminal, &mut game)?,
             Command::Help => {
-                show_box(&mut terminal, &game, "Help", &ui::help_lines())?;
+                show_box(terminal, &game, "Help", &ui::help_lines())?;
             }
             Command::Look => {
-                show_box(&mut terminal, &game, "In view", &ui::look_lines(&game))?;
+                show_box(terminal, &game, "In view", &ui::look_lines(&game))?;
             }
             Command::History => {
                 let title = "Messages, newest first";
-                show_box(&mut terminal, &game, title, &ui::history_lines(&game))?;
+                show_box(terminal, &game, title, &ui::history_lines(&game))?;
             }
             Command::Character => {
-                show_box(
-                    &mut terminal,
-                    &game,
-                    "Character",
-                    &ui::character_lines(&game),
-                )?;
+                show_box(terminal, &game, "Character", &ui::character_lines(&game))?;
             }
-            Command::Descend => descend_or_travel(&mut terminal, &mut game)?,
+            Command::Descend => descend_or_travel(terminal, &mut game)?,
             Command::Explore => {
-                if auto_move(&mut terminal, &mut game, bot::explore_step)? {
+                if auto_move(terminal, &mut game, bot::explore_step)? {
                     game.log("There is nothing left to explore here.");
                 }
             }
             Command::ToggleBot => start_bot(&mut game, &mut autoplay),
             Command::Redraw => {}
             Command::Quit => {
-                if confirm_quit(&mut terminal, &mut game)? {
-                    break;
+                // The run ends like a death, with the same screen and
+                // a place on the high scores.
+                if confirm_quit(terminal, &mut game)? {
+                    game.give_up();
                 }
             }
         }
     }
-    Ok(())
 }
 
 fn start_bot(game: &mut Game, autoplay: &mut Option<Autoplay>) {
@@ -371,9 +448,21 @@ fn show_box(
     title: &str,
     lines: &[Line],
 ) -> io::Result<Option<char>> {
+    show_box_over(terminal, &|w, h| ui::draw(game, w, h), title, lines)
+}
+
+/// Like `show_box`, over any background: the map in play, or a blank
+/// screen at the title.
+fn show_box_over(
+    terminal: &mut Terminal,
+    background: &dyn Fn(u16, u16) -> frame::Frame,
+    title: &str,
+    lines: &[Line],
+) -> io::Result<Option<char>> {
     let mut page = 0;
     loop {
-        let (frame, pages) = ui::draw_with_box(game, terminal.size()?, title, lines, page);
+        let (w, h) = terminal.size()?;
+        let (frame, pages) = ui::box_over(background(w, h), (w, h), title, lines, page);
         terminal.present(frame)?;
         match input::next_menu_key()? {
             Some(' ' | '>') if pages > 1 => page = (page + 1) % pages,
@@ -533,7 +622,7 @@ fn show_inventory(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
 /// Asks before quitting, since quitting ends the run for good.
 fn confirm_quit(terminal: &mut Terminal, game: &mut Game) -> io::Result<bool> {
     let lines = [Line::new(
-        "This ends the run. Press y to quit.",
+        "This ends the run. Press y to give up.",
         frame::Rgb(190, 190, 190),
     )];
     Ok(show_box(terminal, game, "Quit?", &lines)? == Some('y'))

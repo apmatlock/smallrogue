@@ -16,7 +16,8 @@ use crate::game::Game;
 /// How many runs the list keeps.
 pub const KEEP: usize = 10;
 
-const HEADER: &str = "# smallrogue high scores v1: depth level turns kills seed date killer";
+const HEADER: &str =
+    "# smallrogue high scores v2: depth level turns kills seed date seconds killer";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Score {
@@ -27,6 +28,8 @@ pub struct Score {
     pub seed: u64,
     /// The day the run ended, as YYYY-MM-DD.
     pub date: String,
+    /// Real time played (0 for runs saved before this was kept).
+    pub seconds: u64,
     /// What ended the run, e.g. "a troll".
     pub killer: String,
 }
@@ -40,6 +43,7 @@ impl Score {
             kills: game.stats.total_kills(),
             seed: game.seed,
             date,
+            seconds: game.stats.seconds_played,
             killer: game.death.clone().unwrap_or_default(),
         }
     }
@@ -60,21 +64,30 @@ impl Score {
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{killer}",
-            self.depth, self.level, self.turns, self.kills, self.seed, self.date
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{killer}",
+            self.depth, self.level, self.turns, self.kills, self.seed, self.date, self.seconds
         )
     }
 
+    /// Reads a line in either format: version 1 had no time played.
+    /// The killer never holds a tab, so the field count tells them
+    /// apart.
     fn from_line(line: &str) -> Option<Self> {
-        let mut f = line.splitn(7, '\t');
+        let fields: Vec<&str> = line.split('\t').collect();
+        let (seconds, killer) = match fields.len() {
+            7 => (0, fields[6]),
+            8 => (fields[6].parse().ok()?, fields[7]),
+            _ => return None,
+        };
         Some(Self {
-            depth: f.next()?.parse().ok()?,
-            level: f.next()?.parse().ok()?,
-            turns: f.next()?.parse().ok()?,
-            kills: f.next()?.parse().ok()?,
-            seed: f.next()?.parse().ok()?,
-            date: f.next()?.to_string(),
-            killer: f.next()?.to_string(),
+            depth: fields[0].parse().ok()?,
+            level: fields[1].parse().ok()?,
+            turns: fields[2].parse().ok()?,
+            kills: fields[3].parse().ok()?,
+            seed: fields[4].parse().ok()?,
+            date: fields[5].to_string(),
+            seconds,
+            killer: killer.to_string(),
         })
     }
 }
@@ -174,8 +187,20 @@ mod tests {
             kills: 0,
             seed: 7,
             date: "2026-09-29".to_string(),
+            seconds: 600,
             killer: "a rat".to_string(),
         }
+    }
+
+    #[test]
+    fn old_lines_without_a_time_still_load() {
+        let old = Score::from_line("9\t12\t4000\t80\t7\t2026-09-29\ta troll").unwrap();
+        assert_eq!(
+            (old.depth, old.seconds, old.killer.as_str()),
+            (9, 0, "a troll")
+        );
+        let new = Score::from_line(&score(9, 4000).to_line()).unwrap();
+        assert_eq!(new.seconds, 600);
     }
 
     #[test]

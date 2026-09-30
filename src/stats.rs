@@ -20,6 +20,9 @@ pub struct Stats {
     pub potions_drunk: u32,
     pub scrolls_read: u32,
     pub meals_eaten: u32,
+    /// Real time spent playing, not counting long idle gaps. Kept by
+    /// the interface, since the game itself has no clock.
+    pub seconds_played: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +53,11 @@ impl Stats {
             .map(|(&name, &count)| (name, count))
     }
 
+    /// Time played as "M:SS", or "H:MM:SS" from an hour on.
+    pub fn time_played(&self) -> String {
+        format_duration(self.seconds_played)
+    }
+
     /// Percent of the player's attacks that hit, if any were made.
     pub fn accuracy(&self) -> Option<u32> {
         let swings = self.hits + self.misses;
@@ -57,9 +65,26 @@ impl Stats {
     }
 }
 
+/// Seconds as "M:SS", or "H:MM:SS" from an hour on.
+pub fn format_duration(seconds: u64) -> String {
+    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durations_read_like_a_clock() {
+        assert_eq!(format_duration(0), "0:00");
+        assert_eq!(format_duration(754), "12:34");
+        assert_eq!(format_duration(3_723), "1:02:03");
+    }
 
     fn kill(name: &'static str, xp: u32) -> Kill {
         Kill { name, xp, depth: 1 }

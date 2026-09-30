@@ -89,6 +89,7 @@ pub fn draw_status(frame: &mut Frame, text: &str) {
 
 /// The normal game screen with a pop-up box over the map, showing
 /// `page` of the box's lines. Also returns how many pages there are.
+#[cfg(test)]
 pub fn draw_with_box(
     game: &Game,
     size: (u16, u16),
@@ -97,12 +98,89 @@ pub fn draw_with_box(
     page: usize,
 ) -> (Frame, usize) {
     let (width, height) = size;
-    let mut frame = draw(game, width, height);
+    box_over(draw(game, width, height), size, title, lines, page)
+}
+
+/// Draws a box over the map area of `frame`, which is left as it is on
+/// a terminal too small to play in. Returns the frame and the number of
+/// pages.
+pub fn box_over(
+    mut frame: Frame,
+    size: (u16, u16),
+    title: &str,
+    lines: &[Line],
+    page: usize,
+) -> (Frame, usize) {
+    let (width, height) = size;
     let mut pages = 1;
     if width >= MIN_WIDTH && height >= MIN_HEIGHT {
         pages = menu::draw_box(&mut frame, map_area(width, height), title, lines, page);
     }
     (frame, pages)
+}
+
+/// An empty screen, for boxes shown outside a run.
+pub fn draw_blank(width: u16, height: u16) -> Frame {
+    Frame::new(width, height)
+}
+
+/// The title screen: the game's name, what the keys do, and the best
+/// run so far.
+pub fn draw_title(best: Option<&Score>, width: u16, height: u16) -> Frame {
+    let mut frame = Frame::new(width, height);
+    let best_line = match best {
+        Some(s) => format!(
+            "Best run: depth {}, ended by {} ({})",
+            s.depth, s.killer, s.date
+        ),
+        None => "No runs yet. Depth is your score.".to_string(),
+    };
+    let lines: [(&str, Rgb); 10] = [
+        ("S M A L L R O G U E", TITLE),
+        ("", TEXT),
+        ("A grim, fast, endless dungeon crawl.", TEXT_DIM),
+        ("", TEXT),
+        ("n   new game", TEXT),
+        ("s   high scores", TEXT),
+        ("?   help", TEXT),
+        ("q   quit", TEXT),
+        ("", TEXT),
+        (&best_line, STAIRS_FG),
+    ];
+    let (w, h) = (width as i32, height as i32);
+    let top = ((h - lines.len() as i32) / 2).max(0);
+    // The menu shares a left edge; the rest is centered line by line.
+    let menu_x = (w - "s   high scores".len() as i32) / 2;
+    for (i, (text, color)) in lines.iter().enumerate() {
+        let len = text.chars().count() as i32;
+        let x = if (4..=7).contains(&i) {
+            menu_x
+        } else {
+            (w - len) / 2
+        };
+        frame.print(x.max(0), top + i as i32, text, *color);
+    }
+    frame
+}
+
+/// The high score list on its own screen, from the title.
+pub fn draw_scores(board: &Board, width: u16, height: u16) -> Frame {
+    let mut frame = Frame::new(width, height);
+    let (w, h) = (width as i32, height as i32);
+    let footer = "Press any key to go back.";
+    let block = death_scores(board, w, (h - 2).max(1) as usize);
+    let block_w = block
+        .iter()
+        .map(|(t, _)| t.chars().count())
+        .max()
+        .unwrap_or(0) as i32;
+    let top = ((h - block.len() as i32 - 2) / 2).max(0);
+    for (i, (text, color)) in block.iter().enumerate() {
+        frame.print(((w - block_w) / 2).max(0), top + i as i32, text, *color);
+    }
+    let y = (top + block.len() as i32 + 1).min(h - 1);
+    frame.print(((w - footer.len() as i32) / 2).max(0), y, footer, TEXT);
+    frame
 }
 
 /// A line per item, like "a) sword (wielded)". Only items for which
@@ -783,11 +861,24 @@ pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame 
         .death_summary()
         .unwrap_or_else(|| "You died.".to_string());
     let heading: Block = vec![
-        ("You have died.".to_string(), TITLE),
+        (
+            if game.gave_up {
+                "You gave up."
+            } else {
+                "You have died."
+            }
+            .to_string(),
+            TITLE,
+        ),
         (String::new(), TEXT),
         (cause, TEXT),
         (
-            format!("Character level {}, seed {}.", game.player.level, game.seed),
+            format!(
+                "Character level {}, seed {}, time {}.",
+                game.player.level,
+                game.seed,
+                game.stats.time_played()
+            ),
             TEXT_DIM,
         ),
     ];
@@ -889,7 +980,7 @@ fn death_stats(game: &Game, lines: usize) -> Block {
 }
 
 /// The high score table in at most `lines`. Narrow terminals drop the
-/// kills and date columns. This run's row is marked, and stays in view
+/// kills, time and date columns. This run's row is marked, and stays in view
 /// when the table is cut short.
 fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
     let mut block = vec![("High scores".to_string(), GOOD)];
@@ -900,40 +991,30 @@ fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
         block.push(("No runs recorded yet.".to_string(), TEXT_DIM));
         return block;
     }
-    let wide = width >= 70;
-    let killer_w = if wide {
-        20
+    // The wide row is 58 columns plus the cause of death.
+    let wide = width >= 76;
+    let ended_w = if wide {
+        16
     } else {
         (width as usize).saturating_sub(34).clamp(8, 20)
     };
-    let row = |mark: &str,
-               place: &str,
-               depth: &str,
-               level: &str,
-               turns: &str,
-               kills: &str,
-               killer: &str,
-               date: &str| {
-        let killer: String = killer.chars().take(killer_w).collect();
+    // Columns: mark, place, depth, level, turns, kills, time, how the
+    // run ended, date. Narrow screens keep the first five and the end.
+    let row = |c: [&str; 9]| {
+        let [mark, place, depth, level, turns, kills, time, ended, date] = c;
+        let ended: String = ended.chars().take(ended_w).collect();
         if wide {
             format!(
-                "{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {kills:>5}  {killer:<killer_w$}  {date}"
+                "{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {kills:>5}  {time:>7}  {ended:<ended_w$}  {date}"
             )
         } else {
-            format!("{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {killer}")
+            format!("{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {ended}")
         }
     };
     block.push((
-        row(
-            "  ",
-            "#",
-            "Depth",
-            "Level",
-            "Turns",
-            "Kills",
-            "Killed by",
-            "Date",
-        ),
+        row([
+            "  ", "#", "Depth", "Level", "Turns", "Kills", "Time", "Ended by", "Date",
+        ]),
         TEXT_DIM,
     ));
     let rows: Vec<(String, Rgb)> = board
@@ -942,16 +1023,22 @@ fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
         .enumerate()
         .map(|(i, s)| {
             let this = board.this_run == Some(i);
-            let line = row(
+            // Runs saved before time was kept have none.
+            let time = match s.seconds {
+                0 => "-".to_string(),
+                t => crate::stats::format_duration(t),
+            };
+            let line = row([
                 if this { "> " } else { "  " },
                 &(i + 1).to_string(),
                 &s.depth.to_string(),
                 &s.level.to_string(),
                 &s.turns.to_string(),
                 &s.kills.to_string(),
+                &time,
                 &s.killer,
                 &s.date,
-            );
+            ]);
             (line, if this { STAIRS_FG } else { TEXT })
         })
         .collect();
@@ -1217,6 +1304,7 @@ mod tests {
                 kills: 50,
                 seed: i as u64,
                 date: "2026-09-29".to_string(),
+                seconds: 900 + 60 * i as u64,
                 killer: if i == 7 { "a troll" } else { "an orc" }.to_string(),
             })
             .collect();
@@ -1244,6 +1332,54 @@ mod tests {
         assert!(text.contains("High scores"));
         assert!(text.contains(">  8"), "this run is marked\n{text}");
         assert!(text.contains("Press any key"));
+    }
+
+    #[test]
+    fn the_title_offers_the_menu_and_the_best_run() {
+        let (_, scores) = death_fixture();
+        let text = screen_text(&draw_title(scores.first(), 80, 24)).join("\n");
+        for needle in [
+            "S M A L L R O G U E",
+            "n   new game",
+            "s   high scores",
+            "q   quit",
+        ] {
+            assert!(text.contains(needle), "missing {needle}");
+        }
+        assert!(text.contains("Best run: depth 20, ended by an orc"));
+        let empty = screen_text(&draw_title(None, MIN_WIDTH, MIN_HEIGHT)).join("\n");
+        assert!(empty.contains("No runs yet."));
+    }
+
+    #[test]
+    fn the_scores_screen_lists_runs_and_fits_small_terminals() {
+        let (_, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: None,
+            note: None,
+        };
+        let text = screen_text(&draw_scores(&board, 80, 24)).join("\n");
+        assert!(text.contains("High scores") && text.contains("2026-09-29"));
+        let small = screen_text(&draw_scores(&board, MIN_WIDTH, MIN_HEIGHT)).join("\n");
+        assert!(small.contains("Press any key to go back."), "{small}");
+    }
+
+    #[test]
+    fn giving_up_says_so_and_shows_the_time() {
+        let (mut game, scores) = death_fixture();
+        game.give_up();
+        game.stats.seconds_played = 754;
+        let board = Board {
+            scores: &scores,
+            this_run: None,
+            note: None,
+        };
+        let text = screen_text(&draw_death(&game, &board, 80, 30)).join("\n");
+        assert!(text.contains("You gave up."), "{text}");
+        assert!(text.contains("Gave up on depth 1"));
+        assert!(text.contains("time 12:34."));
+        assert!(text.contains("Ended by") && text.contains("Time"));
     }
 
     #[test]
@@ -1321,6 +1457,10 @@ mod tests {
             this_run: Some(7),
             note: None,
         };
+        println!("--- title 80x24");
+        for line in screen_text(&draw_title(scores.first(), 80, 24)) {
+            println!("|{line}|");
+        }
         for (w, h) in [(80, 24), (100, 40), (MIN_WIDTH, MIN_HEIGHT)] {
             println!("--- {w}x{h}");
             for line in screen_text(&draw_death(&game, &board, w, h)) {
