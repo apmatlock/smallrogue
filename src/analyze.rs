@@ -232,8 +232,19 @@ fn pace(out: &mut String, runs: &[Run]) {
             z.2 += f.turn - from.2;
             from = (f.depth, f.ms, f.turn);
         }
-        total_ms += length_ms(r);
-        total_turns += r.end.as_ref().map_or(from.2, |e| e.turn);
+        // Time and turns must cover the same stretch. An unfinished
+        // recording has no final turn count, so it only counts up to
+        // the last floor it reached.
+        match &r.end {
+            Some(end) => {
+                total_ms += length_ms(r);
+                total_turns += end.turn;
+            }
+            None => {
+                total_ms += from.1;
+                total_turns += from.2;
+            }
+        }
     }
     let _ = writeln!(out, "\nPace");
     if total_turns > 0 {
@@ -364,6 +375,26 @@ mod tests {
             !text.contains(" *"),
             "the recording replays exactly\n{text}"
         );
+    }
+
+    /// Found by the Codex review: an unfinished run's time on its last
+    /// floor was counted without its turns, inflating the pace.
+    #[test]
+    fn an_unfinished_run_counts_only_finished_floors() {
+        let text = "smallrogue recording v1\nseed 3\n\
+                    100 you wait\n\
+                    floor 2 at 60000 turn 200\n\
+                    900000 you wait\n";
+        let dir =
+            std::env::temp_dir().join(format!("smallrogue-unfinished-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("u.rec"), text).unwrap();
+        let report = analyze(Some(&dir)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        // 60 seconds over 200 turns: 30 seconds per 100 turns, not the
+        // 900 seconds of the whole recording.
+        assert!(report.contains("30.0 seconds per 100 turns"), "{report}");
+        assert!(report.contains("(unfinished)"));
     }
 
     /// Writes a sample recording where `--analyze` can be tried on it.

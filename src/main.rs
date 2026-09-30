@@ -239,6 +239,8 @@ fn watch_replay(terminal: &mut Terminal, recording: &record::Recording) -> io::R
         };
         match input::poll_key(wait)? {
             Polled::Nothing if !paused => {
+                // The time played as recorded, not as watched.
+                game.stats.seconds_played = steps[next].ms / 1000;
                 match steps[next].step {
                     Step::Act(action) => game.apply(action),
                     Step::Quit => game.give_up(),
@@ -496,8 +498,11 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
         }
 
         let command = input::next_command()?;
+        // Only the walking is automatic: taking the stairs is the
+        // player's choice.
         source = match command {
-            Command::Explore | Command::Descend => Source::Auto,
+            Command::Explore => Source::Auto,
+            Command::Descend if will_travel(&game) => Source::Auto,
             _ => Source::You,
         };
         match command {
@@ -580,13 +585,19 @@ fn auto_move(
 }
 
 /// `>`: descend when on the stairs; otherwise walk to them if seen.
-fn descend_or_travel(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
+/// Whether `>` would walk to the stairs rather than take them: not on
+/// them, but they've been seen.
+fn will_travel(game: &Game) -> bool {
     let on_stairs = game.map.tile(game.player.pos) == map::Tile::StairsDown;
     let stairs_seen = game
         .map
         .points()
         .any(|p| game.map.is_revealed(p) && game.map.tile(p) == map::Tile::StairsDown);
-    if on_stairs || !stairs_seen {
+    !on_stairs && stairs_seen
+}
+
+fn descend_or_travel(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
+    if !will_travel(game) {
         game.apply(Action::Descend);
         return Ok(());
     }
@@ -829,4 +840,27 @@ fn clock_seed() -> u64 {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     (nanos % 1_000_000_000) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geom::Point;
+
+    /// Found by the Codex review: `>` on the stairs was recorded as an
+    /// automatic move, though only walking to them is automatic.
+    #[test]
+    fn only_walking_to_the_stairs_counts_as_travel() {
+        let mut game = Game::new(1);
+        let mut map = map::Map::new_filled(12, 5);
+        map.carve_room(1, 1, 10, 3);
+        let stairs = Point::new(9, 2);
+        map.set_tile(stairs, map::Tile::StairsDown);
+        game.place_on_map(map, Point::new(2, 2));
+        assert!(!will_travel(&game), "stairs not seen yet");
+        game.map.reveal(stairs);
+        assert!(will_travel(&game), "seen, so > walks there");
+        game.player.pos = stairs;
+        assert!(!will_travel(&game), "on them, so > takes them");
+    }
 }
