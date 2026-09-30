@@ -162,7 +162,7 @@ pub fn today() -> String {
 
 /// A calendar date from days since 1970-01-01, using Howard Hinnant's
 /// `civil_from_days` algorithm.
-fn date_from_days(days: i64) -> String {
+pub(crate) fn date_from_days(days: i64) -> String {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);

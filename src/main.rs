@@ -13,6 +13,8 @@
 //! - `skills`  — skills that improve by use; levels from experience
 //! - `stats`   — counts kept over a run for the death screen
 //! - `scores`  — the high score list, saved between runs
+//! - `record`  — recordings of runs, for replays and analysis
+//! - `analyze` — reports on recorded runs
 //! - `item`    — item kinds, their data, and spawning
 //! - `inventory` — picking up, equipping and using items
 //! - `lore`    — what the player knows about items; item names
@@ -37,6 +39,7 @@
 
 mod abilities;
 mod ai;
+mod analyze;
 mod bot;
 mod cli;
 mod combat;
@@ -55,6 +58,7 @@ mod menu;
 mod monster;
 mod path;
 mod player;
+mod record;
 mod rng;
 mod scores;
 mod sim;
@@ -75,6 +79,7 @@ use game::{Action, Game};
 use input::{Command, Polled, Verb};
 use item::{Item, ItemKind};
 use menu::Line;
+use record::{Recorder, Source, Step};
 use term::Terminal;
 
 fn main() -> ExitCode {
@@ -89,6 +94,37 @@ fn main() -> ExitCode {
         }
     };
 
+    if let Some(path) = &options.analyze {
+        return match analyze::analyze(path.as_deref()) {
+            Ok(report) => {
+                print!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(msg) => {
+                eprintln!("{msg}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(path) = &options.replay {
+        // Read the file before touching the terminal, so a bad file
+        // gets a plain error message.
+        let recording = match record::load(path) {
+            Ok(r) => r,
+            Err(msg) => {
+                eprintln!("{msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+        return match Terminal::new().and_then(|mut t| watch_replay(&mut t, &recording)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let result = match options.simulate {
         Some(runs) => {
             if let Some(dir) = options.csv.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -96,7 +132,7 @@ fn main() -> ExitCode {
             }
             sim::simulate(runs, options.seed.unwrap_or(1), &options.csv)
         }
-        None => run(options.seed, options.bot),
+        None => run(options.seed, options.bot, options.record),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -168,13 +204,117 @@ impl PlayClock {
         }
     }
 
-    /// Adds the time since the last tick and returns the total, in
-    /// whole seconds.
-    fn tick(&mut self) -> u64 {
+    /// Adds the time since the last tick and returns the total.
+    fn tick(&mut self) -> Duration {
         let now = Instant::now();
         self.played += (now - self.last).min(IDLE_CAP);
         self.last = now;
-        self.played.as_secs()
+        self.played
+    }
+}
+
+/// Plays a recording back on screen, at a chosen speed. Ends on the
+/// death screen, or with a note if the recording stops mid-run.
+fn watch_replay(terminal: &mut Terminal, recording: &record::Recording) -> io::Result<()> {
+    let mut game = Game::new(recording.seed);
+    let (mut speed, mut paused) = (2, false);
+    let steps = &recording.entries;
+    let mut next = 0;
+    while next < steps.len() && game.death.is_none() {
+        let status = if paused {
+            format!("REPLAY paused {next}/{}", steps.len())
+        } else {
+            format!(
+                "REPLAY {}/{} {next}/{}",
+                speed + 1,
+                BOT_SPEEDS_MS.len(),
+                steps.len()
+            )
+        };
+        draw_with_status(terminal, &game, Some(&status))?;
+        let wait = if paused {
+            Duration::from_secs(3600)
+        } else {
+            Duration::from_millis(BOT_SPEEDS_MS[speed])
+        };
+        match input::poll_key(wait)? {
+            Polled::Nothing if !paused => {
+                match steps[next].step {
+                    Step::Act(action) => game.apply(action),
+                    Step::Quit => game.give_up(),
+                }
+                next += 1;
+            }
+            Polled::Nothing => {}
+            Polled::Key(Some('+' | '=')) => speed = (speed + 1).min(BOT_SPEEDS_MS.len() - 1),
+            Polled::Key(Some('-')) => speed = speed.saturating_sub(1),
+            Polled::Key(Some(' ')) => paused = !paused,
+            Polled::Key(_) => return Ok(()),
+        }
+    }
+    if game.death.is_none() {
+        game.log("The recording ends here: the run wasn't finished.");
+        draw_with_status(terminal, &game, Some("REPLAY ended"))?;
+        input::wait_for_any_key()?;
+        return Ok(());
+    }
+    // A replay only matches while the game's rules are the same as when
+    // it was recorded.
+    let note = match &recording.end {
+        Some(end) if *end != record::End::of(&game) => {
+            "This replay went differently: the game has changed since."
+        }
+        _ => "A replay: nothing is added to the high scores.",
+    };
+    let scores = scores::default_path()
+        .and_then(|p| scores::load(&p).ok())
+        .unwrap_or_default();
+    let board = ui::Board {
+        scores: &scores,
+        this_run: None,
+        note: Some(note),
+    };
+    let (w, h) = terminal.size()?;
+    terminal.present(ui::draw_death(&game, &board, w, h))?;
+    input::wait_for_any_key()
+}
+
+/// Starts recording a run, turning on the game's journal. If the file
+/// can't be made, the run goes on unrecorded and the log says why.
+fn start_recording(game: &mut Game) -> Option<Recorder> {
+    let started = match record::default_dir() {
+        Some(dir) => Recorder::start(&dir, game.seed),
+        None => Err(io::Error::other("no home directory")),
+    };
+    match started {
+        Ok(recorder) => {
+            game.journal = Some(Vec::new());
+            Some(recorder)
+        }
+        Err(e) => {
+            game.log(&format!("Not recording this run: {e}"));
+            None
+        }
+    }
+}
+
+/// Moves the actions the game has applied since last time into the
+/// recording. If writing fails, recording stops and the log says so.
+fn save_steps(recorder: &mut Option<Recorder>, game: &mut Game, played: Duration, source: Source) {
+    let Some(journal) = game.journal.as_mut() else {
+        return;
+    };
+    let steps: Vec<Step> = journal.drain(..).map(Step::Act).collect();
+    let Some(rec) = recorder.as_mut() else {
+        return;
+    };
+    if steps.is_empty() {
+        return;
+    }
+    if let Err(e) = rec.write(played.as_millis() as u64, source, &steps) {
+        *recorder = None;
+        game.journal = None;
+        game.log(&format!("Recording stopped: {e}"));
     }
 }
 
@@ -214,13 +354,14 @@ impl Autoplay {
 
 /// Plays in the terminal. With a seed or the bot asked for, plays that
 /// one run; otherwise the title screen offers run after run.
-fn run(seed: Option<u64>, start_with_bot: bool) -> io::Result<()> {
+fn run(seed: Option<u64>, start_with_bot: bool, record: bool) -> io::Result<()> {
     let mut terminal = Terminal::new()?;
     if seed.is_some() || start_with_bot {
         return play(
             &mut terminal,
             seed.unwrap_or_else(clock_seed),
             start_with_bot,
+            record,
         );
     }
     loop {
@@ -230,7 +371,7 @@ fn run(seed: Option<u64>, start_with_bot: bool) -> io::Result<()> {
         let (w, h) = terminal.size()?;
         terminal.present(ui::draw_title(best.as_ref(), w, h))?;
         match input::next_menu_key()? {
-            Some('n') => play(&mut terminal, clock_seed(), false)?,
+            Some('n') => play(&mut terminal, clock_seed(), false, record)?,
             Some('s') => show_scores(&mut terminal)?,
             Some('?') => {
                 show_box_over(&mut terminal, &ui::draw_blank, "Help", &ui::help_lines())?;
@@ -265,12 +406,20 @@ fn show_scores(terminal: &mut Terminal) -> io::Result<()> {
 
 /// Plays one run from `seed` until death or giving up, ending on the
 /// death screen.
-fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<()> {
+fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) -> io::Result<()> {
     let mut game = Game::new(seed);
     let mut autoplay = None;
     if start_with_bot {
         start_bot(&mut game, &mut autoplay);
     }
+    let mut recorder = if record {
+        start_recording(&mut game)
+    } else {
+        None
+    };
+    let mut depth_recorded = game.depth;
+    // Who chose the actions the game is about to report.
+    let mut source = Source::You;
 
     // Whether the bot played any part of this run. Such runs don't
     // go on the high score list.
@@ -280,11 +429,28 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
         bot_played |= autoplay.is_some();
-        game.stats.seconds_played = clock.tick();
+        let played = clock.tick();
+        game.stats.seconds_played = played.as_secs();
+        save_steps(&mut recorder, &mut game, played, source);
+        if game.depth != depth_recorded {
+            depth_recorded = game.depth;
+            if let Some(rec) = recorder.as_mut() {
+                let _ = rec.floor(record::Floor {
+                    depth: game.depth,
+                    ms: played.as_millis() as u64,
+                    turn: game.turn,
+                });
+            }
+        }
         let status = autoplay.as_ref().map(Autoplay::status);
         draw_with_status(terminal, &game, status.as_deref())?;
 
         if game.death.is_some() {
+            if let Some(rec) = recorder.as_mut() {
+                // A failure here only costs the end line; replays still
+                // work without it.
+                let _ = rec.finish(&game);
+            }
             let (scores, this_run, note) = record_score(&game, bot_played);
             let board = ui::Board {
                 scores: &scores,
@@ -306,6 +472,7 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<
             };
             match input::poll_key(wait)? {
                 Polled::Nothing if !bot.paused => {
+                    source = Source::Bot;
                     let turn = game.turn;
                     game.apply(bot::next_action(&game, &mut bot.memory));
                     bot.idle = if game.turn == turn { bot.idle + 1 } else { 0 };
@@ -328,7 +495,12 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<
             continue;
         }
 
-        match input::next_command()? {
+        let command = input::next_command()?;
+        source = match command {
+            Command::Explore | Command::Descend => Source::Auto,
+            _ => Source::You,
+        };
+        match command {
             Command::Act(action) => game.apply(action),
             Command::Close => close_door(terminal, &mut game)?,
             Command::Use(verb) => use_item(terminal, &mut game, verb, None)?,
@@ -359,6 +531,9 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool) -> io::Result<
                 // a place on the high scores.
                 if confirm_quit(terminal, &mut game)? {
                     game.give_up();
+                    if let Some(rec) = recorder.as_mut() {
+                        let _ = rec.write(clock.tick().as_millis() as u64, source, &[Step::Quit]);
+                    }
                 }
             }
         }

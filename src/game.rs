@@ -125,6 +125,9 @@ pub struct Game {
     pub(crate) rng: Rng,
     /// Counts kept over the run, for the death screen.
     pub stats: Stats,
+    /// When recording, every action applied, oldest first, for the
+    /// recorder to collect. `None` (the default) keeps nothing.
+    pub journal: Option<Vec<Action>>,
 }
 
 impl Game {
@@ -148,6 +151,7 @@ impl Game {
             lore: Lore::new(&mut Rng::new(rng::mix(seed, 0x4C4F_5245))),
             rng: Rng::new(rng::mix(seed, u64::MAX)),
             stats: Stats::default(),
+            journal: None,
         };
         // The fighter knows the healing potion they start with.
         game.lore.learn(ItemKind::Potion(PotionKind::Healing));
@@ -249,6 +253,9 @@ impl Game {
     pub fn apply(&mut self, action: Action) {
         if self.death.is_some() {
             return;
+        }
+        if let Some(journal) = &mut self.journal {
+            journal.push(action);
         }
         // A trap warning only carries over to the very next action.
         let warned = self.trap_warning.take();
