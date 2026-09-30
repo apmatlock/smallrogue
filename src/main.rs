@@ -253,7 +253,14 @@ fn run(seed: u64, start_with_bot: bool) -> io::Result<()> {
             Command::Use(verb) => use_item(&mut terminal, &mut game, verb, None)?,
             Command::Inventory => show_inventory(&mut terminal, &mut game)?,
             Command::Help => {
-                show_box(&mut terminal, &game, "Keys", &ui::help_lines())?;
+                show_box(&mut terminal, &game, "Help", &ui::help_lines())?;
+            }
+            Command::Look => {
+                show_box(&mut terminal, &game, "In view", &ui::look_lines(&game))?;
+            }
+            Command::History => {
+                let title = "Messages, newest first";
+                show_box(&mut terminal, &game, title, &ui::history_lines(&game))?;
             }
             Command::Character => {
                 show_box(

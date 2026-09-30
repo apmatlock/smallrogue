@@ -25,6 +25,10 @@ pub enum Command {
     Inventory,
     Character,
     Help,
+    /// What's in view: monsters, items and traps.
+    Look,
+    /// Scroll back through the message log.
+    History,
     /// Descend, or walk to the stairs if they're elsewhere.
     Descend,
     /// Auto-explore until something needs attention.
@@ -169,6 +173,8 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         KeyCode::Char('r') => Some(Command::Use(Verb::Read)),
         KeyCode::Char('E') => Some(Command::Use(Verb::Eat)),
         KeyCode::Char('?') => Some(Command::Help),
+        KeyCode::Char('L' | ';') => Some(Command::Look),
+        KeyCode::Char('m') => Some(Command::History),
         _ => None,
     }
 }
@@ -203,6 +209,15 @@ mod tests {
         assert!(map_key(ctrl_d).is_none());
         let d = key(KeyCode::Char('d'), KeyModifiers::NONE);
         assert!(matches!(map_key(d), Some(Command::Use(Verb::Drop))));
+    }
+
+    #[test]
+    fn look_and_history_have_keys() {
+        let plain = |c| map_key(key(KeyCode::Char(c), KeyModifiers::NONE));
+        assert!(matches!(plain('L'), Some(Command::Look)));
+        assert!(matches!(plain(';'), Some(Command::Look)));
+        assert!(matches!(plain('m'), Some(Command::History)));
+        assert!(matches!(plain('l'), Some(Command::Act(_))), "l still moves");
     }
 
     #[test]

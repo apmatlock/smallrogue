@@ -224,6 +224,21 @@ Entering a zone logs a message and the sidebar shows the zone's name; from loop 
 
 Later ideas: monster name prefixes in later loops ("elder zombie"), water that slows movement.
 
+### Milestone 12 plan: polish and balance
+
+Decided with the user: all five readability features; quit runs go on the high score list; magic mapping keeps revealing items.
+
+**Part A: readability.**
+1. Help in pages: keys, a symbols legend, and a short how-to-play.
+2. Message history (`m`): scroll back through recent messages.
+3. Look (`l`): every monster in view with its health and a plain note built from its data ("fast, regenerates, heals by biting"), plus items and known traps in view.
+4. Title screen: new game, high scores, help, quit.
+5. Time played per run, on the death screen and in the high scores, to check the 10-20 minute target against real play. Quitting records the run as "quit".
+
+**Part B: balance.** Vampires (about a fifth of fresh deaths, mostly in loop 2's crypts): try blood drinking at half damage, speed 125 to 100, or unlock depth 18 to 21, and keep the smallest change that removes the spike. Then run length, from the user timing a few runs. Recheck: median near 15-20, few turn-limit runs, no monster above about 10% of deaths.
+
+**Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
+
 ## Later, after v1
 
 - Save on quit

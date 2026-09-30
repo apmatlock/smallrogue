@@ -18,7 +18,7 @@ use crate::item::{Item, ItemKind};
 use crate::lore::Lore;
 use crate::map::Tile;
 use crate::menu::{self, Line};
-use crate::monster::{Ai, Monster};
+use crate::monster::{Ability, Ai, Monster};
 use crate::player::{FOOD_MAX, Hunger};
 use crate::scores::Score;
 use crate::skills::{self, Skill};
@@ -230,28 +230,193 @@ pub fn character_lines(game: &Game) -> Vec<Line> {
 
 /// Every key, for the help box.
 pub fn help_lines() -> Vec<Line> {
-    [
-        "arrows or hjkl   move, or attack by moving into",
-        "yubn             move diagonally",
-        ".                wait a turn",
-        ">                descend, or walk to seen stairs",
-        "x                explore until something happens",
-        "c                close a door",
-        "g                pick up (walking over also works)",
-        "i                inventory",
-        "C                character: level, attributes, skills",
-        "e                equip or remove",
-        "d                drop",
-        "q                drink a potion",
-        "r                read a scroll",
-        "E                eat",
-        "?                this help",
-        "B                let the bot play (B again stops it)",
-        "Q                quit (ends the run)",
-    ]
-    .into_iter()
-    .map(|t| Line::new(t, TEXT))
-    .collect()
+    let heading = |t: &str| Line::new(t, GOOD);
+    let text = |t: &str| Line::new(t, TEXT);
+    let mut lines = vec![heading("Keys")];
+    lines.extend(
+        [
+            "arrows or hjkl   move, or attack by moving into",
+            "yubn             move diagonally",
+            ".                wait a turn (rest)",
+            ">                descend, or walk to seen stairs",
+            "x                explore until something happens",
+            "c                close a door",
+            "g                pick up (walking over also works)",
+            "i                inventory",
+            "C                character: level, attributes, skills",
+            "e                equip or remove",
+            "d                drop",
+            "q                drink a potion",
+            "r                read a scroll",
+            "E                eat",
+            "L or ;           look at what's in view",
+            "m                message history",
+            "?                this help",
+            "B                let the bot play (B again stops it)",
+            "Q                quit (ends the run)",
+        ]
+        .map(text),
+    );
+    lines.push(text(""));
+    lines.push(heading("Symbols"));
+    lines.extend(
+        [
+            "@  you               #  wall",
+            ".  floor             ~  shallow water",
+            "+  closed door       '  open door",
+            ">  stairs down       ^  a trap you've found",
+            ")  weapon            [  armor",
+            "!  potion            ?  scroll",
+            "=  ring              %  food",
+            "Letters are monsters. Look (L) says which.",
+        ]
+        .map(text),
+    );
+    lines.push(text(""));
+    lines.push(heading("How to play"));
+    lines.extend(
+        [
+            "Go as deep as you can: depth is your score.",
+            "Every six floors the dungeon changes: the Crypts,",
+            "the Flooded Halls, then the Deep Warrens. After",
+            "that it starts over, and is deadlier each time.",
+            "Kill monsters to gain levels. Skills grow by use.",
+            "Resting heals, but you grow hungry. Eat before you",
+            "weaken, or you starve.",
+            "Potions and scrolls are unknown until used. Gear",
+            "hides its enchantment until worn for a while.",
+            "Cursed gear sticks for a while; enchanting it",
+            "breaks the curse.",
+        ]
+        .map(text),
+    );
+    lines
+}
+
+/// The message log, newest first, for looking back at what happened.
+pub fn history_lines(game: &Game) -> Vec<Line> {
+    game.log
+        .iter()
+        .rev()
+        .take(HISTORY_LENGTH)
+        .map(|m| {
+            let text = if m.count > 1 {
+                format!("{} (x{})", m.text, m.count)
+            } else {
+                m.text.clone()
+            };
+            Line::new(text, message_color(m.kind))
+        })
+        .collect()
+}
+
+/// How far back the message history goes.
+const HISTORY_LENGTH: usize = 200;
+
+fn message_color(kind: MsgKind) -> Rgb {
+    match kind {
+        MsgKind::Info => TEXT,
+        MsgKind::Good => GOOD,
+        MsgKind::Bad => BAD,
+    }
+}
+
+/// Everything of note in view, nearest first: monsters with what they
+/// are doing, how hurt they look and what makes them dangerous, then
+/// items and known traps. Uses only what the player can see.
+pub fn look_lines(game: &Game) -> Vec<Line> {
+    let pos = game.player.pos;
+    let steps = |p: Point| {
+        let d = p - pos;
+        d.x.abs().max(d.y.abs())
+    };
+    let mut monsters: Vec<&Monster> = game
+        .monsters
+        .iter()
+        .filter(|m| game.is_visible(m.pos))
+        .collect();
+    monsters.sort_by_key(|m| steps(m.pos));
+    let mut lines = Vec::new();
+    for m in monsters {
+        let s = m.species();
+        let doing = match m.ai {
+            Ai::Asleep => "asleep",
+            Ai::Wandering { .. } => "wandering",
+            Ai::Hunting { .. } => "hunting you",
+            Ai::Fleeing => "fleeing",
+        };
+        lines.push(Line::new(
+            format!("{} {}, {doing}, {}", s.glyph, s.name, how_hurt(m)),
+            s.color,
+        ));
+        let traits = monster_traits(m);
+        if !traits.is_empty() {
+            lines.push(Line::new(format!("  {}", traits.join(", ")), TEXT_DIM));
+        }
+    }
+    let mut items: Vec<_> = game
+        .items
+        .iter()
+        .filter(|fi| game.is_visible(fi.pos))
+        .collect();
+    items.sort_by_key(|fi| steps(fi.pos));
+    for fi in items {
+        let name = game.lore.with_article(&fi.item);
+        lines.push(Line::new(format!("{} {name}", fi.item.kind.glyph()), TEXT));
+    }
+    for t in game
+        .traps
+        .iter()
+        .filter(|t| t.known && game.is_visible(t.pos))
+    {
+        lines.push(Line::new(
+            format!("^ {} {}", article(t.kind.name()), t.kind.name()),
+            t.kind.color(),
+        ));
+    }
+    if lines.is_empty() {
+        lines.push(Line::new("Nothing of note in view.", TEXT_DIM));
+    }
+    lines
+}
+
+/// How hurt a monster looks, in words, from its health bar.
+fn how_hurt(m: &Monster) -> &'static str {
+    let percent = m.hp.max(0) * 100 / m.max_hp().max(1);
+    match percent {
+        100.. => "unhurt",
+        67.. => "lightly hurt",
+        34.. => "hurt",
+        _ => "badly hurt",
+    }
+}
+
+/// What a player would soon learn about a monster: its speed and
+/// special powers.
+fn monster_traits(m: &Monster) -> Vec<&'static str> {
+    let s = m.species();
+    let mut traits = Vec::new();
+    match s.speed {
+        200.. => traits.push("very fast"),
+        101.. => traits.push("fast"),
+        ..=74 => traits.push("very slow"),
+        75..=99 => traits.push("slow"),
+        _ => {}
+    }
+    if s.pack.1 > 1 {
+        traits.push("hunts in packs");
+    }
+    for ability in s.abilities {
+        traits.push(match ability {
+            Ability::Regenerates => "heals over time",
+            Ability::DrainsMaxHealth => "drains maximum health",
+            Ability::DrinksBlood => "heals by biting",
+            Ability::StealsAndFlees => "steals and runs",
+            Ability::CorrodesArmor => "corrodes armor",
+            Ability::Splits => "splits when hit",
+        });
+    }
+    traits
 }
 
 /// Finds the map coordinate shown at the viewport's left or top edge,
@@ -574,11 +739,7 @@ fn draw_log(frame: &mut Frame, game: &Game, top: i32) {
     // Show the newest messages, newest at the bottom, older ones dimmer.
     let shown = game.log.iter().rev().take(LOG_HEIGHT as usize);
     for (i, msg) in shown.enumerate() {
-        let color = match msg.kind {
-            MsgKind::Info => TEXT,
-            MsgKind::Good => GOOD,
-            MsgKind::Bad => BAD,
-        };
+        let color = message_color(msg.kind);
         let color = if i == 0 { color } else { faded(color) };
         let text = if msg.count > 1 {
             format!("{} (x{})", msg.text, msg.count)
@@ -967,6 +1128,74 @@ mod tests {
         for skill in Skill::ALL {
             assert!(text.contains(skill.name()));
         }
+    }
+
+    #[test]
+    fn help_fits_an_80_column_screen_and_covers_the_basics() {
+        let lines = help_lines();
+        let (view_w, _) = map_area(80, 24);
+        // The box keeps two columns of border and padding each side.
+        let inner = (view_w - 4) as usize;
+        for l in &lines {
+            assert!(l.text.chars().count() <= inner, "too wide: {}", l.text);
+        }
+        let all: String = lines.iter().map(|l| l.text.as_str()).collect();
+        for needle in [
+            "Symbols",
+            "How to play",
+            "~  shallow water",
+            "L or ;",
+            "m   ",
+        ] {
+            assert!(all.contains(needle), "missing {needle}");
+        }
+    }
+
+    #[test]
+    fn history_is_newest_first_with_repeats_counted() {
+        let mut game = Game::new(1);
+        game.log("first");
+        game.log("again");
+        game.log("again");
+        let lines = history_lines(&game);
+        assert_eq!(lines[0].text, "again (x2)");
+        assert_eq!(lines[1].text, "first");
+    }
+
+    #[test]
+    fn look_describes_monsters_items_and_traps_in_view() {
+        use crate::item::{FloorItem, FoodKind, Item};
+        use crate::monster::Kind;
+        use crate::trap::{Trap, TrapKind};
+        let mut game = Game::new(1);
+        let mut map = crate::map::Map::new_filled(20, 9);
+        map.carve_room(1, 1, 18, 7);
+        game.place_on_map(map, Point::new(5, 4));
+        game.monsters.clear();
+        game.items.clear();
+        game.traps.clear();
+        game.update_fov();
+        assert_eq!(look_lines(&game)[0].text, "Nothing of note in view.");
+
+        let (a, b, c) = (Point::new(6, 4), Point::new(8, 4), Point::new(3, 4));
+        let mut vampire = Monster::new(Kind::Vampire, b, Ai::Asleep);
+        vampire.hp /= 2;
+        game.monsters.push(vampire);
+        game.items.push(FloorItem {
+            pos: a,
+            item: Item::new(ItemKind::Food(FoodKind::Ration)),
+        });
+        game.traps.push(Trap {
+            pos: c,
+            kind: TrapKind::Dart,
+            known: true,
+        });
+        game.update_fov();
+        let text: Vec<String> = look_lines(&game).into_iter().map(|l| l.text).collect();
+        assert_eq!(text[0], "V vampire, asleep, hurt");
+        assert_eq!(text[1], "  fast, heals over time, heals by biting");
+        assert!(text[2].starts_with("% "), "{text:?}");
+        assert_eq!(text[3], "^ a dart trap");
     }
 
     /// A dead player with some history, and a full score list with
