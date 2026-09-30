@@ -18,6 +18,7 @@ use crate::rng::{self, Rng};
 use crate::skills::{self, Attribute, Skill};
 use crate::stats::{Kill, Stats};
 use crate::text::article;
+use crate::themed;
 use crate::trap::{self, Trap};
 use crate::zone::{EVERYWHERE, Place};
 
@@ -161,10 +162,21 @@ impl Game {
         // what random events happened on floors 1 to 4.
         let mut floor_rng = Rng::new(rng::mix(self.seed, depth as u64));
         let zone = Place::at_depth(depth).zone();
-        let level = dungeon::generate(&mut floor_rng, &zone.floor);
+        let mut level = dungeon::generate(&mut floor_rng, &zone.floor);
         let home: Vec<_> = zone.home.iter().chain(&EVERYWHERE).copied().collect();
         self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth, &home);
         self.items = item::spawn_for_floor(&mut floor_rng, &level, &zone.items);
+        themed::add_themed_room(
+            &mut floor_rng,
+            &mut level,
+            depth,
+            zone.themes,
+            &zone.items,
+            themed::Contents {
+                monsters: &mut self.monsters,
+                items: &mut self.items,
+            },
+        );
         self.traps = trap::spawn_for_floor(&mut floor_rng, &level, &self.items, depth);
         self.place_on_map(level.map, level.start);
         self.depth = depth;

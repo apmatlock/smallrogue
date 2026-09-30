@@ -17,6 +17,7 @@
 //! - `inventory` — picking up, equipping and using items
 //! - `lore`    — what the player knows about items; item names
 //! - `text`    — small English helpers
+//! - `themed`  — themed rooms: tombs, cisterns, dens and larders
 //! - `trap`    — hidden traps: placing, noticing and springing them
 //! - `monster` — monster kinds, their data, and spawning
 //! - `path`    — pathfinding around walls
@@ -61,6 +62,7 @@ mod skills;
 mod stats;
 mod term;
 mod text;
+mod themed;
 mod trap;
 mod ui;
 mod zone;

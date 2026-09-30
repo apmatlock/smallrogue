@@ -33,6 +33,8 @@ pub const MIN_HEIGHT: u16 = 16;
 // A muted palette to suit the grim tone.
 const STAIRS_FG: Rgb = Rgb(230, 200, 90);
 const PLAYER_FG: Rgb = Rgb(240, 230, 200);
+const WATER_FG: Rgb = Rgb(80, 140, 190);
+const WATER_BG: Rgb = Rgb(10, 24, 40);
 const TEXT: Rgb = Rgb(190, 190, 190);
 const TEXT_DIM: Rgb = Rgb(110, 110, 110);
 const TITLE: Rgb = Rgb(200, 60, 50);
@@ -387,6 +389,7 @@ fn tile_cell(tile: Tile, zone: &Zone) -> Cell {
         Tile::DoorClosed => ('+', zone.door_fg, BLACK),
         Tile::DoorOpen => ('\'', zone.door_fg, BLACK),
         Tile::StairsDown => ('>', STAIRS_FG, BLACK),
+        Tile::Water => ('~', WATER_FG, WATER_BG),
     };
     Cell { ch, fg, bg }
 }

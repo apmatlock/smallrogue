@@ -216,6 +216,11 @@ Entering a zone logs a message and the sidebar shows the zone's name; from loop 
 4. Loop scaling, tuned toward the depth 15–20 target with fewer runs reaching the turn limit.
 5. Codex review, then update this document and the session log.
 
+**Built so far.**
+- Step 1: zones with their own floors and colors. Balance neutral on fresh seeds; runs reaching the turn limit fell from 68 to 49.
+- Step 2: home monsters and item weights. Fresh seeds: median depth 21 to 17, average 28.7 to 25.4.
+- Step 3: shallow water and themed rooms, kept as extra risk and reward. They made runs much easier: fresh median 17 to 44, average 25.4 to 33.7, turn-limit runs 48 to 84. Controlled tests on the same seeds found why. Water and the reshuffled random rolls alone changed nothing (median 19), but the extra monsters and the extra items each made the bot stronger. Even one item per room with the monsters awake still gave a median of 42. **Every extra monster is worth more in experience than it costs in danger**, so adding content on top of a floor makes the game easier. The user chose to keep themed rooms as they are and pull difficulty back in step 4.
+
 Later ideas: monster name prefixes in later loops ("elder zombie"), water that slows movement.
 
 ## Later, after v1

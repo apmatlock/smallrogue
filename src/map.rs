@@ -15,6 +15,8 @@ pub enum Tile {
     DoorClosed,
     DoorOpen,
     StairsDown,
+    /// Shallow water: walked through like floor, only looks different.
+    Water,
 }
 
 impl Tile {
@@ -22,7 +24,10 @@ impl Tile {
     /// not walkable: it has to be opened first.
     pub fn is_walkable(self) -> bool {
         // `matches!` is shorthand for a `match` that returns a bool.
-        matches!(self, Tile::Floor | Tile::DoorOpen | Tile::StairsDown)
+        matches!(
+            self,
+            Tile::Floor | Tile::DoorOpen | Tile::StairsDown | Tile::Water
+        )
     }
 
     /// Is this tile part of the dungeon's layout that creatures can

@@ -9,6 +9,7 @@ use crate::dungeon::FloorParams;
 use crate::frame::Rgb;
 use crate::item::ItemWeights;
 use crate::monster::Kind;
+use crate::themed::Theme;
 
 /// Floors in each zone.
 pub const FLOORS_PER_ZONE: u32 = 6;
@@ -21,6 +22,8 @@ pub struct Zone {
     /// every zone.
     pub home: &'static [Kind],
     pub items: ItemWeights,
+    /// Kinds of themed room this zone can have.
+    pub themes: &'static [Theme],
     pub wall_fg: Rgb,
     pub wall_bg: Rgb,
     pub floor_fg: Rgb,
@@ -65,6 +68,7 @@ pub const ZONES: [Zone; 3] = [
             ring: 7,
             ration_percent: 25,
         },
+        themes: &[Theme::Tomb],
         wall_fg: Rgb(125, 115, 135),
         wall_bg: Rgb(30, 26, 34),
         floor_fg: Rgb(100, 95, 110),
@@ -101,6 +105,7 @@ pub const ZONES: [Zone; 3] = [
             ring: 7,
             ration_percent: 25,
         },
+        themes: &[Theme::Cistern],
         wall_fg: Rgb(90, 125, 130),
         wall_bg: Rgb(18, 32, 36),
         floor_fg: Rgb(80, 110, 115),
@@ -141,6 +146,8 @@ pub const ZONES: [Zone; 3] = [
             ring: 9,
             ration_percent: 40,
         },
+        // Dens twice as often as larders.
+        themes: &[Theme::Den, Theme::Den, Theme::Larder],
         wall_fg: Rgb(150, 115, 70),
         wall_bg: Rgb(38, 28, 18),
         floor_fg: Rgb(120, 100, 70),
