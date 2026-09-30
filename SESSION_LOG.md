@@ -4,7 +4,14 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-09-29 (third session)
 
-Last commit: run stats and high scores on the death screen. Next up: Milestone 11 (themed zones), or a balance pass first (see below).
+Last commit: Milestone 11 step 2. **Milestone 11 (themed zones) is in progress**; the plan is in DESIGN.md.
+
+### Milestone 11 progress
+
+- **Step 1 done** (`75eda3f`): `src/zone.rs` with Crypts (1-6), Flooded Halls (7-12), Deep Warrens (13-18), cycling in loops of 18. Each zone sets floor size, rooms, loops, doors and colors; the sidebar names the zone. Balance neutral on fresh seeds (average 28.8 to 28.7), turn-limit runs 68 to 49.
+- **Step 2 done** (`6b10f0d`): home monsters 4x as common in their zone, skeletons at depth 3 and draugr at 5, zone item weights (warrens: 40% rations). Fresh seeds against step 1: median 21 to 17, average 28.7 to 25.4, 85 deeper and 102 shallower. New top killers: giant spiders, vampires, oni. Turn-limit runs unchanged at 48 of 200.
+- **Next: step 3**, the shallow water tile and themed rooms, then **step 4**, loop scaling to stop the ~quarter of runs that never die.
+- Measuring: `target/run_zone2.sh` shows the pattern (a copied binary per version, both seed sets in parallel, `wait` on the PIDs). Latest results: `target/zone2_1.csv`, `target/zone2_fresh.csv`.
 
 ### Death screen stats and high scores
 
