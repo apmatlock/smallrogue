@@ -38,6 +38,8 @@ pub const ASLEEP_DROP_PER_FLOOR: i32 = 3;
 pub const ASLEEP_MIN_PERCENT: i32 = 5;
 /// Monsters per floor: 2 plus the depth, up to this many.
 pub const MAX_MONSTERS: usize = 16;
+/// How much more common a monster is in its home zone.
+pub const HOME_WEIGHT: i32 = 4;
 
 /// Extra experience per floor, in percent of the base. Not compounding,
 /// so the character can't simply outgrow the dungeon.
@@ -405,7 +407,7 @@ impl Kind {
                 speed: 100,
                 sight: 6,
                 opens_doors: true,
-                min_depth: 6,
+                min_depth: 3,
                 max_hp: 10,
                 accuracy: 3,
                 dodge: 1,
@@ -567,7 +569,7 @@ impl Kind {
                 speed: 100,
                 sight: 6,
                 opens_doors: true,
-                min_depth: 7,
+                min_depth: 5,
                 max_hp: 14,
                 accuracy: 4,
                 dodge: 1,
@@ -815,15 +817,17 @@ impl Monster {
 /// Places monsters for a new floor. Deeper floors get more monsters and
 /// a wider choice of kinds. The start room is always left empty, so the
 /// player never begins a floor next to something awake.
-pub fn spawn_for_floor(rng: &mut Rng, level: &Level, depth: u32) -> Vec<Monster> {
+pub fn spawn_for_floor(rng: &mut Rng, level: &Level, depth: u32, home: &[Kind]) -> Vec<Monster> {
     // Kinds that arrived recently are three times as common as old ones,
-    // so each stretch of the dungeon has its own feel.
+    // and kinds at home in the zone `HOME_WEIGHT` times, so each stretch
+    // of the dungeon has its own feel.
     let pool: Vec<(Kind, i32)> = Kind::ALL
         .into_iter()
         .filter(|k| k.species().min_depth <= depth)
         .map(|k| {
             let recent = depth - k.species().min_depth < 6;
-            (k, if recent { 3 } else { 1 })
+            let at_home = if home.contains(&k) { HOME_WEIGHT } else { 1 };
+            (k, if recent { 3 } else { 1 } * at_home)
         })
         .collect();
     let total_weight: i32 = pool.iter().map(|(_, w)| w).sum();
@@ -904,7 +908,7 @@ mod tests {
         for seed in 0..50 {
             let mut rng = Rng::new(seed);
             let level = generate(&mut rng, &STANDARD);
-            let monsters = spawn_for_floor(&mut rng, &level, 3);
+            let monsters = spawn_for_floor(&mut rng, &level, 3, &[]);
             assert!(!monsters.is_empty());
             let r = level.start_room;
             for m in &monsters {
@@ -936,7 +940,7 @@ mod tests {
         let level = generate(&mut rng, &STANDARD);
         let kinds_at = |depth, rng: &mut Rng| -> Vec<Kind> {
             (0..30)
-                .flat_map(|_| spawn_for_floor(rng, &level, depth))
+                .flat_map(|_| spawn_for_floor(rng, &level, depth, &[]))
                 .map(|m| m.kind)
                 .collect()
         };
@@ -953,11 +957,26 @@ mod tests {
     }
 
     #[test]
+    fn home_monsters_are_more_common() {
+        let mut rng = Rng::new(21);
+        let level = generate(&mut rng, &STANDARD);
+        let skeletons = |home: &[Kind], rng: &mut Rng| {
+            (0..60)
+                .flat_map(|_| spawn_for_floor(rng, &level, 8, home))
+                .filter(|m| m.kind == Kind::Skeleton)
+                .count()
+        };
+        let away = skeletons(&[], &mut rng);
+        let at_home = skeletons(&[Kind::Skeleton], &mut rng);
+        assert!(at_home > away * 2, "{at_home} at home vs {away} away");
+    }
+
+    #[test]
     fn packs_arrive_together() {
         let mut rng = Rng::new(12);
         let level = generate(&mut rng, &STANDARD);
         let packs = (0..40)
-            .map(|_| spawn_for_floor(&mut rng, &level, 6))
+            .map(|_| spawn_for_floor(&mut rng, &level, 6, &[]))
             .filter(|ms| ms.iter().filter(|m| m.kind == Kind::Orc).count() >= 2)
             .count();
         assert!(packs > 0, "orcs never came in a group");
@@ -977,7 +996,7 @@ mod tests {
     fn shallow_floors_only_have_shallow_monsters() {
         let mut rng = Rng::new(5);
         let level = generate(&mut rng, &STANDARD);
-        for m in spawn_for_floor(&mut rng, &level, 1) {
+        for m in spawn_for_floor(&mut rng, &level, 1, &[]) {
             assert_eq!(m.species().min_depth, 1);
         }
     }

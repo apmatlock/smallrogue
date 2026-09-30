@@ -391,7 +391,33 @@ fn weighted<T: Copy>(rng: &mut Rng, choices: &[(T, i32)]) -> T {
 
 /// Rolls a random item: first its category, then its kind, then an
 /// enchantment for weapons and armor.
-pub fn random_item(rng: &mut Rng) -> Item {
+/// How often each category of item turns up, as relative weights,
+/// plus the chance of a ration on a floor. Zones each supply their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ItemWeights {
+    pub potion: i32,
+    pub scroll: i32,
+    pub weapon: i32,
+    pub armor: i32,
+    pub ring: i32,
+    /// Chance per floor of a ration, in percent.
+    pub ration_percent: i32,
+}
+
+impl ItemWeights {
+    /// The weights from before zones; tests use them.
+    #[cfg(test)]
+    pub const STANDARD: Self = Self {
+        potion: 38,
+        scroll: 33,
+        weapon: 11,
+        armor: 11,
+        ring: 7,
+        ration_percent: 25,
+    };
+}
+
+pub fn random_item(rng: &mut Rng, weights: &ItemWeights) -> Item {
     #[derive(Clone, Copy)]
     enum Category {
         Weapon,
@@ -403,11 +429,11 @@ pub fn random_item(rng: &mut Rng) -> Item {
     let category = weighted(
         rng,
         &[
-            (Category::Potion, 38),
-            (Category::Scroll, 33),
-            (Category::Weapon, 11),
-            (Category::Armor, 11),
-            (Category::Ring, 7),
+            (Category::Potion, weights.potion),
+            (Category::Scroll, weights.scroll),
+            (Category::Weapon, weights.weapon),
+            (Category::Armor, weights.armor),
+            (Category::Ring, weights.ring),
         ],
     );
     let kind = match category {
@@ -459,17 +485,19 @@ pub fn random_item(rng: &mut Rng) -> Item {
     Item::enchanted(kind, enchant)
 }
 
-/// Chance per floor of finding a ration, and of finding jerky. Tuned so
-/// careful play never starves but resting forever does.
-pub const RATION_PERCENT: i32 = 25;
+/// Chance per floor of finding jerky. Rations come from the zone's
+/// `ItemWeights`. Tuned so careful play never starves but resting
+/// forever does.
 pub const JERKY_PERCENT: i32 = 35;
 
 /// Scatters a few random items across a new floor, never on the stairs
 /// and never two on one tile. Food is rolled separately so its supply
 /// stays steady.
-pub fn spawn_for_floor(rng: &mut Rng, level: &Level) -> Vec<FloorItem> {
-    let mut wanted: Vec<Item> = (0..rng.range(3, 6)).map(|_| random_item(rng)).collect();
-    if rng.chance(RATION_PERCENT) {
+pub fn spawn_for_floor(rng: &mut Rng, level: &Level, weights: &ItemWeights) -> Vec<FloorItem> {
+    let mut wanted: Vec<Item> = (0..rng.range(3, 6))
+        .map(|_| random_item(rng, weights))
+        .collect();
+    if rng.chance(weights.ration_percent) {
         wanted.push(Item::new(ItemKind::Food(FoodKind::Ration)));
     }
     if rng.chance(JERKY_PERCENT) {
@@ -510,7 +538,7 @@ mod tests {
     fn curses_are_rare_but_happen() {
         let mut rng = Rng::new(9);
         let gear: Vec<Item> = (0..20_000)
-            .map(|_| random_item(&mut rng))
+            .map(|_| random_item(&mut rng, &ItemWeights::STANDARD))
             .filter(|i| matches!(i.kind, ItemKind::Weapon(_) | ItemKind::Armor(_)))
             .collect();
         let cursed = gear.iter().filter(|i| i.enchant < 0).count();
@@ -532,7 +560,7 @@ mod tests {
     fn only_equipment_is_enchanted() {
         let mut rng = Rng::new(4);
         for _ in 0..500 {
-            let item = random_item(&mut rng);
+            let item = random_item(&mut rng, &ItemWeights::STANDARD);
             if !item.kind.is_equipment() {
                 assert_eq!(item.enchant, 0);
             }
@@ -544,7 +572,7 @@ mod tests {
         for seed in 0..50 {
             let mut rng = Rng::new(seed);
             let level = generate(&mut rng, &STANDARD);
-            let items = spawn_for_floor(&mut rng, &level);
+            let items = spawn_for_floor(&mut rng, &level, &ItemWeights::STANDARD);
             assert!(!items.is_empty());
             for (i, fi) in items.iter().enumerate() {
                 assert_eq!(level.map.tile(fi.pos), crate::map::Tile::Floor);

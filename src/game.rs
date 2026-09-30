@@ -19,7 +19,7 @@ use crate::skills::{self, Attribute, Skill};
 use crate::stats::{Kill, Stats};
 use crate::text::article;
 use crate::trap::{self, Trap};
-use crate::zone::Place;
+use crate::zone::{EVERYWHERE, Place};
 
 /// A starving player loses 1 health every this many turns.
 pub const STARVING_DAMAGE_EVERY: u64 = 5;
@@ -160,9 +160,11 @@ impl Game {
         // depth). Floor 5 of a seed is then always the same, no matter
         // what random events happened on floors 1 to 4.
         let mut floor_rng = Rng::new(rng::mix(self.seed, depth as u64));
-        let level = dungeon::generate(&mut floor_rng, &Place::at_depth(depth).zone().floor);
-        self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth);
-        self.items = item::spawn_for_floor(&mut floor_rng, &level);
+        let zone = Place::at_depth(depth).zone();
+        let level = dungeon::generate(&mut floor_rng, &zone.floor);
+        let home: Vec<_> = zone.home.iter().chain(&EVERYWHERE).copied().collect();
+        self.monsters = monster::spawn_for_floor(&mut floor_rng, &level, depth, &home);
+        self.items = item::spawn_for_floor(&mut floor_rng, &level, &zone.items);
         self.traps = trap::spawn_for_floor(&mut floor_rng, &level, &self.items, depth);
         self.place_on_map(level.map, level.start);
         self.depth = depth;

@@ -7,6 +7,8 @@
 
 use crate::dungeon::FloorParams;
 use crate::frame::Rgb;
+use crate::item::ItemWeights;
+use crate::monster::Kind;
 
 /// Floors in each zone.
 pub const FLOORS_PER_ZONE: u32 = 6;
@@ -14,11 +16,19 @@ pub const FLOORS_PER_ZONE: u32 = 6;
 pub struct Zone {
     pub name: &'static str,
     pub floor: FloorParams,
+    /// Monsters at home here, which are more common (see
+    /// `monster::HOME_WEIGHT`). Those in `EVERYWHERE` are at home in
+    /// every zone.
+    pub home: &'static [Kind],
+    pub items: ItemWeights,
     pub wall_fg: Rgb,
     pub wall_bg: Rgb,
     pub floor_fg: Rgb,
     pub door_fg: Rgb,
 }
+
+/// Vermin at home in every zone.
+pub const EVERYWHERE: [Kind; 4] = [Kind::Rat, Kind::Newt, Kind::Jackal, Kind::GiantBat];
 
 /// The zones, in the order they're met.
 pub const ZONES: [Zone; 3] = [
@@ -33,6 +43,27 @@ pub const ZONES: [Zone; 3] = [
             room_h: (3, 6),
             loop_percent: 10,
             door_percent: 90,
+        },
+        // The dead, and what guards them.
+        home: &[
+            Kind::Zombie,
+            Kind::Skeleton,
+            Kind::Draugr,
+            Kind::Ghoul,
+            Kind::Gargoyle,
+            Kind::StoneGolem,
+            Kind::Wraith,
+            Kind::Vampire,
+            Kind::Demon,
+        ],
+        // Old libraries: more scrolls.
+        items: ItemWeights {
+            potion: 33,
+            scroll: 40,
+            weapon: 10,
+            armor: 10,
+            ring: 7,
+            ration_percent: 25,
         },
         wall_fg: Rgb(125, 115, 135),
         wall_bg: Rgb(30, 26, 34),
@@ -51,6 +82,25 @@ pub const ZONES: [Zone; 3] = [
             loop_percent: 45,
             door_percent: 40,
         },
+        // Things that crawl, swarm, ooze and swim.
+        home: &[
+            Kind::GiantAnt,
+            Kind::Harpy,
+            Kind::AcidMound,
+            Kind::GiantSpider,
+            Kind::PinkJelly,
+            Kind::Troll,
+            Kind::FrostGiant,
+        ],
+        // Flasks wash up here: more potions.
+        items: ItemWeights {
+            potion: 45,
+            scroll: 28,
+            weapon: 10,
+            armor: 10,
+            ring: 7,
+            ration_percent: 25,
+        },
         wall_fg: Rgb(90, 125, 130),
         wall_bg: Rgb(18, 32, 36),
         floor_fg: Rgb(80, 110, 115),
@@ -67,6 +117,29 @@ pub const ZONES: [Zone; 3] = [
             room_h: (3, 7),
             loop_percent: 35,
             door_percent: 60,
+        },
+        // Tribes, beasts and burrowers.
+        home: &[
+            Kind::Kobold,
+            Kind::Goblin,
+            Kind::Redcap,
+            Kind::Monkey,
+            Kind::Orc,
+            Kind::Hobgoblin,
+            Kind::Ogre,
+            Kind::Owlbear,
+            Kind::Bulette,
+            Kind::Oni,
+            Kind::Dragon,
+        ],
+        // Stolen gear and stores: more weapons, armor and food.
+        items: ItemWeights {
+            potion: 33,
+            scroll: 26,
+            weapon: 16,
+            armor: 16,
+            ring: 9,
+            ration_percent: 40,
         },
         wall_fg: Rgb(150, 115, 70),
         wall_bg: Rgb(38, 28, 18),
@@ -185,6 +258,16 @@ mod tests {
         assert_eq!(Place::at_depth(20).title(), "Crypts II");
         assert_eq!(Place::at_depth(36 + 13).title(), "Deep Warrens III");
         assert_eq!(roman(1994), "MCMXCIV");
+    }
+
+    /// Every monster lives somewhere, and only in one place.
+    #[test]
+    fn every_monster_has_one_home() {
+        for kind in Kind::ALL {
+            let homes = ZONES.iter().filter(|z| z.home.contains(&kind)).count()
+                + usize::from(EVERYWHERE.contains(&kind));
+            assert_eq!(homes, 1, "{kind:?}");
+        }
     }
 
     #[test]

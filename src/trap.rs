@@ -194,7 +194,8 @@ mod tests {
         for seed in 0..40 {
             let mut rng = Rng::new(seed);
             let level = generate(&mut rng, &STANDARD);
-            let items = crate::item::spawn_for_floor(&mut rng, &level);
+            let items =
+                crate::item::spawn_for_floor(&mut rng, &level, &crate::item::ItemWeights::STANDARD);
             let traps = spawn_for_floor(&mut rng, &level, &items, 9);
             assert!(!traps.is_empty());
             let r = level.start_room;
