@@ -57,7 +57,7 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 
 ### Next step
 
-1. **Milestone 12: polish and balance, in progress.** Part A (readability) is done and pushed; vampires are tuned (speed 100, half blood healing). Left: run length from the user timing real runs (time played is now on the death screen and in the scores file), then Part C (README, wrap-up). Earlier notes: Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
+1. **Milestone 12: polish and balance, in progress.** Part A (readability) is done and pushed; vampires are tuned (speed 100, half blood healing). Runs are now recorded (`src/record.rs`, `src/analyze.rs`): every terminal run saves to `~/.local/share/smallrogue/recordings`; `--replay FILE` watches one and `--analyze` reports pace per zone, deaths, and how the player's moves compare with the bot's. Left: the user plays and records runs, then `--analyze` settles run length and points at bot improvements; then Part C (README, wrap-up). Earlier notes: Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
