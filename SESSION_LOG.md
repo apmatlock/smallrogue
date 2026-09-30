@@ -4,13 +4,15 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-09-29 (third session)
 
-Last commit: Milestone 11 step 2. **Milestone 11 (themed zones) is in progress**; the plan is in DESIGN.md.
+Last commit: Milestone 11 step 4. **Milestone 11 (themed zones) is nearly done**; the plan is in DESIGN.md.
 
 ### Milestone 11 progress
 
 - **Step 1 done** (`75eda3f`): `src/zone.rs` with Crypts (1-6), Flooded Halls (7-12), Deep Warrens (13-18), cycling in loops of 18. Each zone sets floor size, rooms, loops, doors and colors; the sidebar names the zone. Balance neutral on fresh seeds (average 28.8 to 28.7), turn-limit runs 68 to 49.
 - **Step 2 done** (`6b10f0d`): home monsters 4x as common in their zone, skeletons at depth 3 and draugr at 5, zone item weights (warrens: 40% rations). Fresh seeds against step 1: median 21 to 17, average 28.7 to 25.4, 85 deeper and 102 shallower. New top killers: giant spiders, vampires, oni. Turn-limit runs unchanged at 48 of 200.
-- **Next: step 3**, the shallow water tile and themed rooms, then **step 4**, loop scaling to stop the ~quarter of runs that never die.
+- **Step 3 done** (`7b38c97`): shallow water and themed rooms (tomb, cistern, den, larder), kept as extra risk and reward by the user's choice even though they made runs much easier (fresh median 17 to 44). Controlled tests: extra monsters and extra items each strengthen the bot; water and reshuffled rolls alone don't.
+- **Step 4 done**: `LOOP_EXTRA_FLOORS = 3` in `src/monster.rs`. Fresh seeds: median 20, average 23.7, turn-limit runs 84 to 26, 66 of 200 past the second crypts. 6 and above made loop 2 a wall.
+- **Next: step 5**, wrap-up. Then milestone 12. Open balance item: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts.
 - Measuring: `target/run_zone2.sh` shows the pattern (a copied binary per version, both seed sets in parallel, `wait` on the PIDs). Latest results: `target/zone2_1.csv`, `target/zone2_fresh.csv`.
 
 ### Death screen stats and high scores
@@ -77,12 +79,12 @@ Measured with the bot, which plays like a careful beginner. Target set by the us
 
 | Measure (200 fresh seeds, 1001-1200) | Value |
 |---|---|
-| Median final depth | 19 |
-| Average final depth | 28.9 |
-| Deaths | 131 of 200 (69 hit the turn limit) |
-| Top killers | trolls, bulettes, wraiths, orcs, gargoyles, demons, draugr, ghouls |
+| Median final depth | 20 |
+| Average final depth | 23.7 |
+| Deaths | 174 of 200 (26 hit the turn limit) |
+| Top killers | vampires (41), jackals, frost giants, wraiths, oni |
 
-The tuning knobs are constants at the top of `src/monster.rs` (scaling, alertness, monster count) and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
+The tuning knobs are constants at the top of `src/monster.rs` (scaling, loop scaling, home weight, alertness, monster count), `src/zone.rs` (zone floors, homes, item weights, themes), `src/themed.rs` and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
 
 ## How we work
 

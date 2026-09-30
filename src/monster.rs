@@ -10,6 +10,7 @@ use crate::frame::Rgb;
 use crate::geom::Point;
 use crate::item::Item;
 use crate::rng::Rng;
+use crate::zone::Place;
 
 /// Energy a creature spends to take one action. Each turn a monster
 /// gains energy equal to its speed, so speed 100 acts once per turn,
@@ -40,6 +41,11 @@ pub const ASLEEP_MIN_PERCENT: i32 = 5;
 pub const MAX_MONSTERS: usize = 16;
 /// How much more common a monster is in its home zone.
 pub const HOME_WEIGHT: i32 = 4;
+
+/// Each pass through the zones after the first scales monsters as if
+/// they were this many floors deeper again, on top of their depth. The
+/// main lever against characters who outgrow the dungeon.
+pub const LOOP_EXTRA_FLOORS: u32 = 3;
 
 /// Extra experience per floor, in percent of the base. Not compounding,
 /// so the character can't simply outgrow the dungeon.
@@ -762,15 +768,17 @@ impl Monster {
         Self::at_depth(kind, pos, ai, 1)
     }
 
-    /// A monster scaled for the given depth.
+    /// A monster scaled for the given depth, and for the loop that
+    /// depth is in.
     pub fn at_depth(kind: Kind, pos: Point, ai: Ai, depth: u32) -> Self {
+        let loops_done = Place::at_depth(depth).loop_number - 1;
         let mut monster = Self {
             kind,
             pos,
             energy: 0,
             ai,
             hp: 0,
-            boost: depth.saturating_sub(1) as i32,
+            boost: (depth.saturating_sub(1) + LOOP_EXTRA_FLOORS * loops_done) as i32,
             carrying: None,
         };
         monster.hp = monster.max_hp();
@@ -954,6 +962,19 @@ mod tests {
         for kind in [Kind::Vampire, Kind::Dragon, Kind::Demon] {
             assert!(deepest.contains(&kind), "{kind:?} missing at depth 26");
         }
+    }
+
+    #[test]
+    fn later_loops_scale_monsters_further() {
+        let orc = |depth| Monster::at_depth(Kind::Orc, Point::default(), Ai::Asleep, depth);
+        let last_floor = crate::zone::FLOORS_PER_ZONE * crate::zone::ZONES.len() as u32;
+        // Within a loop, one floor deeper is one step of scaling.
+        assert_eq!(orc(last_floor).boost, last_floor as i32 - 1);
+        // Into the next loop, the extra floors are added on top.
+        assert_eq!(
+            orc(last_floor + 1).boost,
+            (last_floor + LOOP_EXTRA_FLOORS) as i32
+        );
     }
 
     #[test]
