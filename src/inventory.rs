@@ -17,6 +17,15 @@ const LIFE: i32 = 5;
 /// Damage range of a potion of decay.
 const DECAY_DAMAGE: (i32, i32) = (3, 8);
 
+/// Armor's protection as far as the player knows it: its base armor,
+/// plus its enchantment once that's been revealed.
+fn known_armor(item: &Item) -> i32 {
+    match item.kind {
+        ItemKind::Armor(a) => a.stats().armor + if item.known { item.enchant } else { 0 },
+        _ => 0,
+    }
+}
+
 impl Game {
     pub fn item_at(&self, p: Point) -> Option<&FloorItem> {
         self.items.iter().find(|i| i.pos == p)
@@ -77,27 +86,36 @@ impl Game {
     }
 
     /// A nudge about gear just picked up that's worth putting on:
-    /// armor heavier than what's worn (which protects more), or a ring
-    /// of a kind not yet known, when a ring finger is free. Recorded
-    /// runs showed players carrying both around unworn.
+    /// armor that looks more protective than what's worn, or a ring of
+    /// a kind not yet known, when a ring finger is free. Recorded runs
+    /// showed players carrying both around unworn.
     fn gear_hint(&self, letter: char) -> Option<String> {
         let item = self.player.item(letter)?;
         match item.kind {
-            ItemKind::Armor(new) => {
-                let new = new.stats();
+            ItemKind::Armor(_) => {
+                let name = self.lore.name(item);
                 let hint = match self.player.armor() {
-                    None => format!("Your {} would protect you: e to wear it.", new.name),
+                    None => format!("Your {name} would protect you: e to wear it."),
                     Some(worn) => {
-                        let ItemKind::Armor(worn) = worn.kind else {
-                            return None;
-                        };
-                        let worn = worn.stats();
-                        if new.armor <= worn.armor {
+                        // Only what the player can know: base armor plus
+                        // enchantments already revealed.
+                        if known_armor(item) <= known_armor(worn) {
                             return None;
                         }
+                        // Heavier armor kinds cost dodge; say so only
+                        // when this one costs more than what's worn.
+                        let dodge = |i: &Item| match i.kind {
+                            ItemKind::Armor(a) => a.stats().dodge,
+                            _ => 0,
+                        };
+                        let heavier = if dodge(item) < dodge(worn) {
+                            ", though it's heavier"
+                        } else {
+                            ""
+                        };
                         format!(
-                            "Your {} protects more than your {}, though it's heavier: e to wear it.",
-                            new.name, worn.name
+                            "Your {name} looks more protective than your {}{heavier}: e to wear it.",
+                            self.lore.name(worn)
                         )
                     }
                 };
@@ -443,10 +461,30 @@ mod tests {
         let chain = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Chain));
         assert_eq!(
             chain[1],
-            "Your chain mail protects more than your leather armor, though it's heavier: e to wear it."
+            "Your chain mail looks more protective than your +0 leather armor, though it's heavier: e to wear it."
         );
         let leather = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Leather));
         assert_eq!(leather.len(), 1, "no better than what's worn: {leather:?}");
+
+        // Found by the Codex review: known enchantment counts. +3
+        // leather (4 armor) beats plain chain mail (3) as far as the
+        // player knows.
+        let leather = game.player.armor().unwrap().letter;
+        let worn = game.player.item_mut(leather).unwrap();
+        worn.enchant = 3;
+        worn.known = true;
+        let chain = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Chain));
+        assert_eq!(chain.len(), 1, "{chain:?}");
+        // And a lighter kind isn't called heavier: plain chain mail over
+        // known -3 plate.
+        let worn = game.player.item_mut(leather).unwrap();
+        worn.kind = ItemKind::Armor(ArmorKind::Plate);
+        worn.enchant = -3;
+        let chain = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Chain));
+        assert_eq!(
+            chain[1],
+            "Your chain mail looks more protective than your -3 plate armor: e to wear it."
+        );
 
         let ring = ItemKind::Ring(RingKind::Protection);
         let unknown = pick_up_new(&mut game, ring);
