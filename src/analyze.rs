@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use crate::bot;
 use crate::game::{Action, Game};
+use crate::item::ItemKind;
 use crate::monster::Ai;
+use crate::player::RING_SLOTS;
 use crate::record::{self, Recording, Source, Step};
 use crate::stats::format_duration;
 use crate::zone::Place;
@@ -23,6 +25,22 @@ struct Run {
     /// changed since and the bot comparison is fair.
     replays: bool,
     agreement: Agreement,
+    /// What the player still carried at death, unused. `None` unless
+    /// the run ended in death and replays.
+    unused: Option<Unused>,
+}
+
+/// Things that could have helped, still in the pack at death.
+#[derive(Default, Clone, Copy)]
+struct Unused {
+    /// Potions known to heal.
+    healing: u32,
+    /// Armor heavier (more protective) than what was worn.
+    heavier_armor: bool,
+    /// Unknown rings, with a ring finger free to try one.
+    unknown_rings: bool,
+    /// Unknown potions and scrolls.
+    unknown_magic: u32,
 }
 
 /// How often the player chose what the bot would have.
@@ -32,6 +50,8 @@ struct Agreement {
     fighting: Tally,
     quiet: Tally,
     /// Disagreements by kind: (what the bot would do, what you did).
+    /// A run of the same disagreement counts once: an unworn ring the
+    /// bot wants on would otherwise count at every step.
     differences: BTreeMap<(&'static str, &'static str), u32>,
 }
 
@@ -105,6 +125,7 @@ fn study(file: &Path, recording: Recording) -> Run {
     let mut game = Game::new(recording.seed);
     let mut memory = bot::BotMemory::default();
     let mut agreement = Agreement::default();
+    let mut ongoing: Option<(&'static str, &'static str)> = None;
     for entry in &recording.entries {
         let Step::Act(action) = entry.step else {
             game.give_up();
@@ -125,11 +146,13 @@ fn study(file: &Path, recording: Recording) -> Run {
             tally.total += 1;
             if bot_choice == action {
                 tally.same += 1;
+                ongoing = None;
             } else {
-                *agreement
-                    .differences
-                    .entry((kind(bot_choice), kind(action)))
-                    .or_default() += 1;
+                let pair = (kind(bot_choice), kind(action));
+                if ongoing != Some(pair) {
+                    *agreement.differences.entry(pair).or_default() += 1;
+                }
+                ongoing = Some(pair);
             }
         }
         game.apply(action);
@@ -138,11 +161,35 @@ fn study(file: &Path, recording: Recording) -> Run {
         .end
         .as_ref()
         .is_some_and(|end| *end == record::End::of(&game));
+    let died = game.death.is_some() && !game.gave_up;
+    let unused = (replays && died).then(|| unused_at_end(&game));
     Run {
         name,
         recording,
         replays,
         agreement,
+        unused,
+    }
+}
+
+fn unused_at_end(game: &Game) -> Unused {
+    let p = &game.player;
+    let worn_armor = match p.armor().map(|i| i.kind) {
+        Some(ItemKind::Armor(a)) => a.stats().armor,
+        _ => 0,
+    };
+    let unworn = || p.inventory.iter().filter(|i| !i.equipped);
+    Unused {
+        healing: game.healing_carried(),
+        heavier_armor: unworn()
+            .any(|i| matches!(i.kind, ItemKind::Armor(a) if a.stats().armor > worn_armor)),
+        unknown_rings: p.rings().count() < RING_SLOTS
+            && unworn().any(|i| matches!(i.kind, ItemKind::Ring(_)) && !game.lore.knows(i.kind)),
+        unknown_magic: unworn()
+            .filter(|i| matches!(i.kind, ItemKind::Potion(_) | ItemKind::Scroll(_)))
+            .filter(|i| !game.lore.knows(i.kind))
+            .map(|i| i.count)
+            .sum(),
     }
 }
 
@@ -210,8 +257,42 @@ fn report(runs: &[Run]) -> String {
     }
 
     pace(&mut out, runs);
+    left_unused(&mut out, runs);
     compare_with_bot(&mut out, runs);
     out
+}
+
+/// What dying players still carried that might have saved them.
+fn left_unused(out: &mut String, runs: &[Run]) {
+    let deaths: Vec<Unused> = runs.iter().filter_map(|r| r.unused).collect();
+    if deaths.is_empty() {
+        return;
+    }
+    let n = deaths.len();
+    let count = |f: fn(&Unused) -> bool| deaths.iter().filter(|u| f(u)).count();
+    let _ = writeln!(out, "\nLeft unused at death ({n} deaths)");
+    let healing: u32 = deaths.iter().map(|u| u.healing).sum();
+    let _ = writeln!(
+        out,
+        "  Healing potions:         {} of {n} deaths ({healing} potions)",
+        count(|u| u.healing > 0)
+    );
+    let _ = writeln!(
+        out,
+        "  Heavier armor than worn: {} of {n}",
+        count(|u| u.heavier_armor)
+    );
+    let _ = writeln!(
+        out,
+        "  Unknown rings, unworn:   {} of {n}",
+        count(|u| u.unknown_rings)
+    );
+    let magic: u32 = deaths.iter().map(|u| u.unknown_magic).sum();
+    let _ = writeln!(
+        out,
+        "  Untried potions/scrolls: {} of {n} ({magic} items)",
+        count(|u| u.unknown_magic > 0)
+    );
 }
 
 /// Time and turns per floor, overall and by zone. Floor times come
@@ -303,7 +384,10 @@ fn compare_with_bot(out: &mut String, runs: &[Run]) {
     let mut differences: Vec<_> = differences.into_iter().collect();
     differences.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     if !differences.is_empty() {
-        let _ = writeln!(out, "  Most common differences (bot would / you did):");
+        let _ = writeln!(
+            out,
+            "  Most common differences, each stretch counted once (bot would / you did):"
+        );
         for ((bot, you), n) in differences.iter().take(8) {
             let _ = writeln!(out, "    {n:>5}  {bot} / {you}");
         }
@@ -402,6 +486,55 @@ mod tests {
     #[ignore = "writes target/sample.rec; run with --ignored"]
     fn write_a_sample_recording() {
         std::fs::write("target/sample.rec", bot_recording(4000)).unwrap();
+    }
+
+    #[test]
+    fn a_stretch_of_the_same_difference_counts_once() {
+        // Waiting 50 times where the bot would do something else the
+        // whole time: one difference, not 50.
+        let mut text = "smallrogue recording v1\nseed 3\n".to_string();
+        for i in 0..50 {
+            text.push_str(&format!("{} you wait\n", i * 100));
+        }
+        // Finish it with how the replay really ends, so it counts.
+        let e = record::End::of(&record::replay(&record::parse(&text).unwrap()));
+        text.push_str(&format!(
+            "end depth {} turn {} level {} by {}\n",
+            e.depth, e.turn, e.level, e.killer
+        ));
+        let dir = std::env::temp_dir().join(format!("smallrogue-stretch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("w.rec"), text).unwrap();
+        let report = analyze(Some(&dir)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let header = "each stretch counted once";
+        let differences: Vec<&str> = report
+            .lines()
+            .skip_while(|l| !l.contains(header))
+            .skip(1)
+            .collect();
+        assert_eq!(differences.len(), 1, "{report}");
+        assert!(differences[0].trim_start().starts_with("1  "), "{report}");
+    }
+
+    #[test]
+    fn unused_items_are_found_in_the_pack() {
+        use crate::item::{ArmorKind, Item, PotionKind, RingKind, ScrollKind};
+        let mut game = Game::new(1);
+        let p = &mut game.player;
+        for kind in [
+            ItemKind::Armor(ArmorKind::Plate),
+            ItemKind::Ring(RingKind::Accuracy),
+            ItemKind::Potion(PotionKind::Strength),
+            ItemKind::Scroll(ScrollKind::Identify),
+        ] {
+            p.add_item(Item::new(kind)).unwrap();
+        }
+        let u = unused_at_end(&game);
+        // The fighter's starting potion of healing is known.
+        assert_eq!(u.healing, 1);
+        assert!(u.heavier_armor && u.unknown_rings);
+        assert_eq!(u.unknown_magic, 2);
     }
 
     #[test]

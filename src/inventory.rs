@@ -62,6 +62,9 @@ impl Game {
             Ok(letter) => {
                 self.stats.items_picked_up += 1;
                 self.log(&format!("You pick up {name} ({letter})."));
+                if let Some(hint) = self.gear_hint(letter) {
+                    self.log_as(&hint, MsgKind::Good);
+                }
                 Outcome::TookTurn
             }
             Err(item) => {
@@ -70,6 +73,40 @@ impl Game {
                 self.log(&format!("You see {name} here, but your pack is full."));
                 Outcome::Free
             }
+        }
+    }
+
+    /// A nudge about gear just picked up that's worth putting on:
+    /// armor heavier than what's worn (which protects more), or a ring
+    /// of a kind not yet known, when a ring finger is free. Recorded
+    /// runs showed players carrying both around unworn.
+    fn gear_hint(&self, letter: char) -> Option<String> {
+        let item = self.player.item(letter)?;
+        match item.kind {
+            ItemKind::Armor(new) => {
+                let new = new.stats();
+                let hint = match self.player.armor() {
+                    None => format!("Your {} would protect you: e to wear it.", new.name),
+                    Some(worn) => {
+                        let ItemKind::Armor(worn) = worn.kind else {
+                            return None;
+                        };
+                        let worn = worn.stats();
+                        if new.armor <= worn.armor {
+                            return None;
+                        }
+                        format!(
+                            "Your {} protects more than your {}, though it's heavier: e to wear it.",
+                            new.name, worn.name
+                        )
+                    }
+                };
+                Some(hint)
+            }
+            ItemKind::Ring(_) if !self.lore.knows(item.kind) => (self.player.rings().count()
+                < RING_SLOTS)
+                .then(|| "Putting a ring on (e) tells you what kind it is.".to_string()),
+            _ => None,
         }
     }
 
@@ -387,6 +424,39 @@ mod tests {
 
     fn last_log(game: &Game) -> &str {
         &game.log.last().unwrap().text
+    }
+
+    /// Drops `kind` underfoot and picks it up, returning the messages.
+    fn pick_up_new(game: &mut Game, kind: ItemKind) -> Vec<String> {
+        game.log.clear();
+        game.items.push(FloorItem {
+            pos: game.player.pos,
+            item: Item::new(kind),
+        });
+        game.apply(Action::PickUp);
+        game.log.iter().map(|m| m.text.clone()).collect()
+    }
+
+    #[test]
+    fn heavier_armor_and_unknown_rings_come_with_a_hint() {
+        let mut game = room_game();
+        let chain = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Chain));
+        assert_eq!(
+            chain[1],
+            "Your chain mail protects more than your leather armor, though it's heavier: e to wear it."
+        );
+        let leather = pick_up_new(&mut game, ItemKind::Armor(ArmorKind::Leather));
+        assert_eq!(leather.len(), 1, "no better than what's worn: {leather:?}");
+
+        let ring = ItemKind::Ring(RingKind::Protection);
+        let unknown = pick_up_new(&mut game, ring);
+        assert_eq!(
+            unknown[1],
+            "Putting a ring on (e) tells you what kind it is."
+        );
+        game.lore.learn(ring);
+        let known = pick_up_new(&mut game, ring);
+        assert_eq!(known.len(), 1, "{known:?}");
     }
 
     #[test]

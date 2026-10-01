@@ -862,7 +862,7 @@ pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame 
     let cause = game
         .death_summary()
         .unwrap_or_else(|| "You died.".to_string());
-    let heading: Block = vec![
+    let mut heading: Block = vec![
         (
             if game.gave_up {
                 "You gave up."
@@ -884,6 +884,15 @@ pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame 
             TEXT_DIM,
         ),
     ];
+    // Dying with healing in the pack is a lesson worth spelling out.
+    let healing = game.healing_carried();
+    if !game.gave_up && healing > 0 {
+        let potions = if healing == 1 { "potion" } else { "potions" };
+        heading.push((
+            format!("You died with {healing} healing {potions} in your pack."),
+            STAIRS_FG,
+        ));
+    }
     let footer: Block = vec![("Press any key to leave the dungeon.".to_string(), TEXT)];
 
     // Heading and footer always show. The other blocks follow in
@@ -1375,6 +1384,23 @@ mod tests {
         assert!(text.contains("High scores") && text.contains("2026-09-29"));
         let small = screen_text(&draw_scores(&board, MIN_WIDTH, MIN_HEIGHT)).join("\n");
         assert!(small.contains("Press any key to go back."), "{small}");
+    }
+
+    #[test]
+    fn dying_with_healing_says_so() {
+        let (game, scores) = death_fixture();
+        let board = Board {
+            scores: &scores,
+            this_run: None,
+            note: None,
+        };
+        let text = |g: &Game| screen_text(&draw_death(g, &board, 80, 30)).join("\n");
+        // The fighter starts with one known potion of healing.
+        assert!(text(&game).contains("You died with 1 healing potion in your pack."));
+        let mut without = Game::new(1);
+        without.death = Some("a rat".to_string());
+        without.player.inventory.retain(|i| i.equipped);
+        assert!(!text(&without).contains("You died with"));
     }
 
     #[test]
