@@ -243,6 +243,8 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 - Recordings, added at the user's request: every run played in the terminal is saved as its seed plus each action (with play time and who chose it: you, auto-explore or the bot), plus a line per new floor. A seed and its actions decide a run, so recordings replay exactly while the rules are unchanged; floor lines keep pace data usable after they change. `--replay FILE` watches one; `--analyze` reports time and turns per floor by zone, seconds per 100 turns (which turns the bot's turn counts into minutes), how runs ended, and how often the player's moves match the bot's.
 
+- First recorded play: 10 runs, deaths at depths 2-9 after 1-5 minutes, at 13.5 seconds per 100 turns, so the bot's median run would take about 13 minutes and the 10-20 minute target holds. The gap was item use: healing potions left in the pack at all 9 deaths, better armor and unknown rings carried unworn. Added a low-health warning that names known healing, hints on picking up more protective armor or an unknown ring, and a death-screen line counting unused healing potions, all messages only. `--analyze` counts each stretch of the same disagreement with the bot once, and lists what was left unused at death.
+
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
 
 ## Later, after v1
