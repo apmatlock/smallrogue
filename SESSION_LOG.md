@@ -4,7 +4,7 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-10-01
 
-Last commit: `2fe12c1` "Loop scaling grows with each loop" plus this log update, **both committed but not pushed** (everything before them is on GitHub). 213 tests pass; clippy (with `-D warnings`) and rustfmt are clean; Codex reviews were clean on every commit.
+Last commit: `58f4b57`. Everything is pushed to GitHub. 213 tests pass; clippy (with `-D warnings`) and rustfmt are clean; Codex reviews were clean on every commit.
 
 **Milestone 12 (polish and balance) is nearly done.** Built this stretch:
 - Readability: help pages, look (`L`/`;`), message history (`m`), title screen, time played, quitting goes on the high scores.
@@ -15,10 +15,9 @@ Last commit: `2fe12c1` "Loop scaling grows with each loop" plus this log update,
 - Growing loop scaling (`LOOP_GROWTH = 4` in `src/monster.rs`), from a 1,000-run batch on seeds 2001-3000: turn-limit runs 200 to 89, median 22.
 
 **Next:**
-1. Push `2fe12c1` and this log (the user hadn't said to yet).
-2. v1 wrap-up: mark milestone 12 done in DESIGN.md.
-3. When the user has played more runs with the hints, `smallrogue --analyze` to see whether healing and gear use changed. Rule changes past depth 36 don't affect their recordings so far (none went past depth 9).
-4. Open balance notes, not urgent: vampires, wraiths and demons cause about 40% of deaths, mostly in the second and third crypts; the bot's median (22) is a little above the 15-20 target, though the user's own runs end much earlier.
+1. v1 wrap-up: mark milestone 12 done in DESIGN.md.
+2. When the user has played more runs with the hints, `smallrogue --analyze` to see whether healing and gear use changed. Rule changes past depth 36 don't affect their recordings so far (none went past depth 9).
+3. Open balance notes, not urgent: vampires, wraiths and demons cause about 40% of deaths, mostly in the second and third crypts; the bot's median (22) is a little above the 15-20 target, though the user's own runs end much earlier.
 
 Tools for measuring: `target/big_report.py CSV...` breaks a batch down by zone, killer and estimated run length (untracked); `target/simwatch.py LOG BASELINE.csv TOTAL` (or `-` for no baseline) gives a live view; run sims as copied binaries in parallel and `wait` on their PIDs, never `pgrep -f`.
 
