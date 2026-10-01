@@ -46,6 +46,17 @@ pub const HOME_WEIGHT: i32 = 4;
 /// they were this many floors deeper again, on top of their depth. The
 /// main lever against characters who outgrow the dungeon.
 pub const LOOP_EXTRA_FLOORS: u32 = 3;
+/// How much more each loop after the second adds than the one before,
+/// in floors. Without it a character strong enough to finish loop 2
+/// outgrew the dungeon: a fifth of bot runs never died.
+pub const LOOP_GROWTH: u32 = 4;
+
+/// The extra floors of strength monsters get after `loops_done`
+/// passes through the zones: 0, then 3, then growing by
+/// `LOOP_GROWTH` more each loop.
+pub fn loop_extra_floors(loops_done: u32) -> u32 {
+    LOOP_EXTRA_FLOORS * loops_done + LOOP_GROWTH * loops_done * loops_done.saturating_sub(1) / 2
+}
 
 /// Extra experience per floor, in percent of the base. Not compounding,
 /// so the character can't simply outgrow the dungeon.
@@ -778,7 +789,7 @@ impl Monster {
             energy: 0,
             ai,
             hp: 0,
-            boost: (depth.saturating_sub(1) + LOOP_EXTRA_FLOORS * loops_done) as i32,
+            boost: (depth.saturating_sub(1) + loop_extra_floors(loops_done)) as i32,
             carrying: None,
         };
         monster.hp = monster.max_hp();
@@ -974,6 +985,19 @@ mod tests {
         assert_eq!(
             orc(last_floor + 1).boost,
             (last_floor + LOOP_EXTRA_FLOORS) as i32
+        );
+    }
+
+    #[test]
+    fn each_loop_adds_more_than_the_last() {
+        assert_eq!(loop_extra_floors(0), 0);
+        assert_eq!(loop_extra_floors(1), LOOP_EXTRA_FLOORS);
+        let steps: Vec<u32> = (1..5)
+            .map(|k| loop_extra_floors(k) - loop_extra_floors(k - 1))
+            .collect();
+        assert!(
+            steps.windows(2).all(|w| w[1] == w[0] + LOOP_GROWTH),
+            "{steps:?}"
         );
     }
 

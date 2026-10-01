@@ -245,6 +245,8 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 - First recorded play: 10 runs, deaths at depths 2-9 after 1-5 minutes, at 13.5 seconds per 100 turns, so the bot's median run would take about 13 minutes and the 10-20 minute target holds. The gap was item use: healing potions left in the pack at all 9 deaths, better armor and unknown rings carried unworn. Added a low-health warning that names known healing, hints on picking up more protective armor or an unknown ring, and a death-screen line counting unused healing potions, all messages only. `--analyze` counts each stretch of the same disagreement with the bot once, and lists what was left unused at death.
 
+- A 1,000-run batch on fresh seeds 2001-3000 showed a split: runs either ended by the second crypts or outgrew the dungeon, with 20% surviving to the turn limit around depths 40-55. Loop scaling now grows: loop 2 keeps +3 floors, and each later loop adds `LOOP_GROWTH` (4) more than the one before (+10 in loop 3, +21 in loop 4). Over the same 1,000 seeds, runs ending by depth 36 are identical; turn-limit runs fell from 200 to 89, the best depth from 55 to 46, and the median stayed at 22. A growth of 8 made the third crypts a wall (nobody past depth 41) and was not kept.
+
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
 
 ## Later, after v1

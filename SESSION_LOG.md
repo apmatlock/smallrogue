@@ -57,7 +57,7 @@ On seeds 1-100 both versions showed 47 runs deeper and 22 shallower, another cas
 
 ### Next step
 
-1. **Milestone 12: polish and balance, in progress.** Part A (readability) is done and pushed; vampires are tuned (speed 100, half blood healing). Runs are now recorded (`src/record.rs`, `src/analyze.rs`): every terminal run saves to `~/.local/share/smallrogue/recordings`; `--replay FILE` watches one and `--analyze` reports pace per zone, deaths, and how the player's moves compare with the bot's. The user's first 10 recorded runs (2026-09-30/10-01) ended at depths 2-9 in 1-5 minutes, at a pace of 13.5 seconds per 100 turns (so the bot's median run would take about 13 minutes: the length target holds). They died with healing potions in 9 of 9 deaths and rarely wore better armor or tried rings and unknown items, so hints were added (low health with a healing reminder, gear hints on pick up, a death-screen note) and `--analyze` now lists what was left unused at death. No balance changes from this: the bot uses its items and reaches the target depth. README done. Left: v1 wrap-up, and more recorded runs to see whether the hints help. Earlier notes: Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
+1. **Milestone 12: polish and balance, in progress.** Part A (readability) is done and pushed; vampires are tuned (speed 100, half blood healing). Runs are now recorded (`src/record.rs`, `src/analyze.rs`): every terminal run saves to `~/.local/share/smallrogue/recordings`; `--replay FILE` watches one and `--analyze` reports pace per zone, deaths, and how the player's moves compare with the bot's. The user's first 10 recorded runs (2026-09-30/10-01) ended at depths 2-9 in 1-5 minutes, at a pace of 13.5 seconds per 100 turns (so the bot's median run would take about 13 minutes: the length target holds). They died with healing potions in 9 of 9 deaths and rarely wore better armor or tried rings and unknown items, so hints were added (low health with a healing reminder, gear hints on pick up, a death-screen note) and `--analyze` now lists what was left unused at death. No balance changes from this: the bot uses its items and reaches the target depth. README done. A 1,000-run batch (seeds 2001-3000) then led to growing loop scaling (`LOOP_GROWTH = 4`): turn-limit runs 200 to 89, median unchanged at 22. Left: v1 wrap-up, and more recorded runs to see whether the hints help. Earlier notes: Help screen and final tuning (high scores are done). Balance items: vampires kill about a fifth of fresh runs, mostly in loop 2's crypts; themed rooms made the game easier and loop scaling pulled it back, so floors 1-18 are gentler than before milestone 11.
 
 Smaller open items:
 - Monster abilities step 4 (ranged attackers; status effects like poison and paralysis) needs new systems.
@@ -77,12 +77,12 @@ Smaller open items:
 
 Measured with the bot, which plays like a careful beginner. Target set by the user: the bot should die around depth 15-20.
 
-| Measure (200 fresh seeds, 1001-1200) | Value |
+| Measure | Value |
 |---|---|
-| Median final depth | 21 |
-| Average final depth | 25.9 |
-| Deaths | 172 of 200 (28 hit the turn limit) |
-| Top killers | wraiths (23), vampires (19), jackals (14), frost giants (11) |
+| Median final depth | 22 (1,000 fresh seeds, 2001-3000) |
+| Average final depth | 25.7 |
+| Deaths | 911 of 1,000 (89 hit the turn limit) |
+| Top killers | vampires (15%), wraiths (14%), demons (11%), mostly in the second and third crypts |
 
 The tuning knobs are constants at the top of `src/monster.rs` (scaling, loop scaling, home weight, alertness, monster count), `src/zone.rs` (zone floors, homes, item weights, themes), `src/themed.rs` and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
 
