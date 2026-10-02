@@ -855,7 +855,7 @@ fn show_inventory(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
         .expect("chosen from the pack")
         .clone();
     let title = format!("{}) {}", item.letter, game.lore.name(&item));
-    let key = show_box(terminal, game, &title, &ui::item_details(&game.lore, &item))?;
+    let key = show_box(terminal, game, &title, &ui::item_details(game, &item))?;
     let verb = match (key, item.kind) {
         (Some('d'), _) => Verb::Drop,
         (Some('e'), k) if k.is_equipment() => Verb::Equip,

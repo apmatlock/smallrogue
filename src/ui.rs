@@ -15,11 +15,10 @@ use crate::frame::{BLACK, Cell, Frame, Rgb};
 use crate::game::{Game, MsgKind};
 use crate::geom::Point;
 use crate::item::{Item, ItemKind};
-use crate::lore::Lore;
 use crate::map::Tile;
 use crate::menu::{self, Line};
 use crate::monster::{Ability, Ai, Monster};
-use crate::player::{FOOD_MAX, Hunger};
+use crate::player::{FOOD_MAX, Hunger, Player};
 use crate::scores::Score;
 use crate::skills::{self, Skill};
 use crate::text::article;
@@ -204,19 +203,81 @@ pub fn item_list(game: &Game, show: impl Fn(&Item) -> bool) -> Vec<Line> {
                 ""
             };
             let name = game.lore.name(i);
-            Line::new(format!("{}) {name}{worn}{cursed}", i.letter), TEXT)
+            let change = gear_change(&game.player, i)
+                .map(|c| format!(": {c}"))
+                .unwrap_or_default();
+            Line::new(format!("{}) {name}{worn}{cursed}{change}", i.letter), TEXT)
         })
         .collect()
 }
 
-/// The inside of the box describing one item, with the keys that act
-/// on it.
-pub fn item_details(lore: &Lore, item: &Item) -> Vec<Line> {
-    let mut lines: Vec<Line> = lore
+/// The player as they know themselves: unidentified enchantments count
+/// as 0, so numbers worked out from this can't be used to identify gear
+/// by comparing.
+fn as_known(p: &Player) -> Player {
+    let mut known = p.clone();
+    for item in known.inventory.iter_mut().filter(|i| !i.known) {
+        item.enchant = 0;
+    }
+    known
+}
+
+/// How equipping `item` instead of what's in its slot would change
+/// attack or defense, as far as the player knows: "damage 2-7 (now
+/// 1-5), accuracy -2". A "?" marks numbers that rest on an unknown
+/// enchantment. `None` for anything but a weapon or armor not in use.
+pub fn gear_change(p: &Player, item: &Item) -> Option<String> {
+    let weapon = match item.kind {
+        _ if item.equipped => return None,
+        ItemKind::Weapon(_) => true,
+        ItemKind::Armor(_) => false,
+        _ => return None,
+    };
+    let before = as_known(p);
+    let current = if weapon { p.weapon() } else { p.armor() };
+    let mut after = before.clone();
+    for i in after.inventory.iter_mut() {
+        if i.letter == item.letter {
+            i.equipped = true;
+        } else if Some(i.letter) == current.map(|c| c.letter) {
+            i.equipped = false;
+        }
+    }
+    let unsure = !item.known || current.is_some_and(|c| !c.known);
+    let q = if unsure { "?" } else { "" };
+    let mut parts = Vec::new();
+    let change = |name: &str, by: i32| (by != 0).then(|| format!("{name} {by:+}{q}"));
+    if weapon {
+        let (now, then) = (before.attack(), after.attack());
+        if then.damage != now.damage {
+            let (a, b) = then.damage;
+            let (c, d) = now.damage;
+            parts.push(format!("damage {a}-{b}{q} (now {c}-{d})"));
+        }
+        parts.extend(change("accuracy", then.accuracy - now.accuracy));
+    } else {
+        let (now, then) = (before.defense(), after.defense());
+        parts.extend(change("armor", then.armor - now.armor));
+        parts.extend(change("dodge", then.dodge - now.dodge));
+    }
+    if parts.is_empty() {
+        parts.push(format!("no change{q}"));
+    }
+    Some(parts.join(", "))
+}
+
+/// The inside of the box describing one item, with what equipping it
+/// would change and the keys that act on it.
+pub fn item_details(game: &Game, item: &Item) -> Vec<Line> {
+    let mut lines: Vec<Line> = game
+        .lore
         .describe(item)
         .into_iter()
         .map(|text| Line::new(text, TEXT))
         .collect();
+    if let Some(change) = gear_change(&game.player, item) {
+        lines.push(Line::new(format!("Equipped: {change}"), TEXT));
+    }
     let actions = match item.kind {
         ItemKind::Ring(_) if item.equipped => "e) take off   d) drop",
         ItemKind::Ring(_) => "e) put on   d) drop",
@@ -237,18 +298,10 @@ pub fn character_lines(game: &Game) -> Vec<Line> {
     // Work out combat numbers as the player knows them: unidentified
     // enchantments count as 0, and the numbers get a "?" so the sheet
     // can't be used to identify gear by comparing before and after.
-    let mut known = p.clone();
-    let mut unsure = false;
-    for item in known
-        .inventory
-        .iter_mut()
-        .filter(|i| i.equipped && !i.known)
-    {
-        // Any unknown piece gets the "?", even a +0 one: leaving it
-        // off would itself reveal the +0.
-        unsure = true;
-        item.enchant = 0;
-    }
+    let known = as_known(p);
+    // Any unknown piece gets the "?", even a +0 one: leaving it off
+    // would itself reveal the +0.
+    let unsure = p.inventory.iter().any(|i| i.equipped && !i.known);
     let (attack, defense) = (known.attack(), known.defense());
     let q = if unsure { "?" } else { "" };
     let next = skills::xp_for_level(p.level + 1);
@@ -1083,6 +1136,51 @@ fn recent_messages(game: &Game, lines: usize) -> Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gear(game: &mut Game, kind: ItemKind, enchant: i32, known: bool) -> char {
+        let mut item = Item::new(kind);
+        item.enchant = enchant;
+        item.known = known;
+        game.player.add_item(item).unwrap()
+    }
+
+    #[test]
+    fn gear_comparison_shows_what_changes() {
+        use crate::item::{ArmorKind, WeaponKind};
+        let mut game = Game::new(1);
+        // The fighter starts in +0 leather with a +0 sword.
+        let chain = gear(&mut game, ItemKind::Armor(ArmorKind::Chain), 1, true);
+        let dagger = gear(&mut game, ItemKind::Weapon(WeaponKind::Dagger), 0, true);
+        let p = &game.player;
+        let change = |c| gear_change(p, p.item(c).unwrap());
+        assert_eq!(change(chain).as_deref(), Some("armor +3, dodge -1"));
+        assert_eq!(
+            change(dagger).as_deref(),
+            Some("damage 2-5 (now 2-6), accuracy +2")
+        );
+        assert_eq!(change('a'), None, "already wielded");
+        assert_eq!(change('c'), None, "not gear");
+        let list = item_list(&game, |i| i.letter == chain);
+        assert!(
+            list[0].text.ends_with(": armor +3, dodge -1"),
+            "{}",
+            list[0].text
+        );
+    }
+
+    /// An unknown enchantment counts as 0, so comparing can't be used to
+    /// identify gear.
+    #[test]
+    fn gear_comparison_keeps_enchantments_secret() {
+        use crate::item::ArmorKind;
+        let mut game = Game::new(1);
+        let plus = gear(&mut game, ItemKind::Armor(ArmorKind::Chain), 3, false);
+        let minus = gear(&mut game, ItemKind::Armor(ArmorKind::Chain), -2, false);
+        let p = &game.player;
+        let change = |c| gear_change(p, p.item(c).unwrap());
+        assert_eq!(change(plus).as_deref(), Some("armor +2?, dodge -1?"));
+        assert_eq!(change(plus), change(minus));
+    }
 
     /// Reads one screen row back out of a frame as a string.
     fn row_text(frame: &Frame, y: u16) -> String {

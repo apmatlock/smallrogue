@@ -84,7 +84,7 @@ This plays seeds 1 to 200, printing a line as each run finishes, then the averag
 | `@` | Auto pickup on or off; the choice is saved for later runs |
 | `i` | Open your pack; press an item's letter for details and actions |
 | `C` | Character sheet: level, experience, attributes, combat numbers and skills |
-| `e` | Equip or remove a weapon, armor or ring |
+| `e` | Equip or remove a weapon, armor or ring; weapons and armor show how they would change your attack or defense (a `?` means an unknown enchantment, counted as +0) |
 | `d` | Drop an item |
 | `q` | Drink a potion |
 | `r` | Read a scroll |
