@@ -9,7 +9,7 @@ use crate::dungeon;
 use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::grid::Grid;
-use crate::item::{self, FloorItem, ItemKind, PotionKind};
+use crate::item::{self, FloorItem, ItemKind, PotionKind, SEAR_TURNS, Slaying};
 use crate::lore::Lore;
 use crate::map::{Map, Tile};
 use crate::monster::{self, Ability, Ai, Monster};
@@ -203,8 +203,35 @@ impl Game {
             },
         );
         self.traps = trap::spawn_for_floor(&mut floor_rng, &level, &self.items, depth);
+        self.place_artifacts(&level, depth);
         self.place_on_map(level.map, level.start);
         self.depth = depth;
+    }
+
+    /// Lays any artifact this run keeps on this floor in a free spot in
+    /// a room. It has its own generator, so the rest of the floor is the
+    /// same with or without it.
+    fn place_artifacts(&mut self, level: &dungeon::Level, depth: u32) {
+        let kinds = item::artifacts_on_floor(self.seed, depth);
+        if kinds.is_empty() {
+            return;
+        }
+        let mut rng = Rng::new(rng::mix(self.seed, 0x4152_5400 + depth as u64));
+        for kind in kinds {
+            for _ in 0..100 {
+                let room = level.rooms[rng.index(level.rooms.len())];
+                let pos = dungeon::random_point_in(&mut rng, room);
+                let free = level.map.tile(pos) == Tile::Floor
+                    && pos != level.start
+                    && self.items.iter().all(|i| i.pos != pos)
+                    && self.traps.iter().all(|t| t.pos != pos);
+                if free {
+                    let item = item::artifact(&mut rng, kind);
+                    self.items.push(FloorItem { pos, item });
+                    break;
+                }
+            }
+        }
     }
 
     /// Where the current floor falls in the cycle of zones.
@@ -563,7 +590,11 @@ impl Game {
                 self.stats.misses += 1;
                 self.log(&format!("You miss the {name}."));
             }
-            Some(damage) => {
+            Some(mut damage) => {
+                let slaying = self.slaying(i);
+                if let Some(s) = slaying {
+                    damage *= s.multiplier;
+                }
                 self.stats.hits += 1;
                 // Only the health it had counts, not overkill.
                 self.stats.damage_dealt += damage.min(self.monsters[i].hp).max(0) as u32;
@@ -580,7 +611,11 @@ impl Game {
                     self.gain_xp(dead.xp());
                     return;
                 }
-                self.log(&format!("You hit the {name} for {damage}."));
+                let verb = slaying.map_or("hit", |s| s.verb);
+                self.log(&format!("You {verb} the {name} for {damage}."));
+                if slaying.is_some_and(|s| s.sears) {
+                    self.monsters[i].seared = SEAR_TURNS;
+                }
                 if self.monsters[i].species().has(Ability::Splits) {
                     self.split_monster(i);
                 }
@@ -593,6 +628,15 @@ impl Game {
             self.monsters[i].ai = Ai::Hunting {
                 last_seen: self.player.pos,
             };
+        }
+    }
+
+    /// What the wielded weapon does to monster `i`, if it's made to
+    /// kill its kind.
+    fn slaying(&self, i: usize) -> Option<&'static Slaying> {
+        match self.player.weapon()?.kind {
+            ItemKind::Weapon(w) if w.slays(self.monsters[i].kind) => w.slaying(),
+            _ => None,
         }
     }
 
@@ -1237,5 +1281,34 @@ mod tests {
         game.log("Bye");
         game.log("Hello");
         assert_eq!(game.log.len(), 3, "only consecutive repeats merge");
+    }
+
+    #[test]
+    fn an_artifact_lies_free_on_its_floor_and_changes_nothing_else() {
+        let (seed, depth) = (0..)
+            .find_map(|seed| {
+                (13..=20)
+                    .find(|&d| item::artifacts_on_floor(seed, d).len() == 1)
+                    .map(|d| (seed, d))
+            })
+            .unwrap();
+        let mut game = Game::new(seed);
+        game.enter_floor(depth);
+        let artifacts: Vec<&FloorItem> = game
+            .items
+            .iter()
+            .filter(|fi| matches!(fi.item.kind, ItemKind::Weapon(w) if w.is_artifact()))
+            .collect();
+        assert_eq!(artifacts.len(), 1);
+        let pos = artifacts[0].pos;
+        assert_eq!(game.map.tile(pos), Tile::Floor);
+        assert_ne!(pos, game.player.pos);
+        assert_eq!(game.items.iter().filter(|fi| fi.pos == pos).count(), 1);
+        assert!(game.traps.iter().all(|t| t.pos != pos));
+        // The floor without it, as it was before artifacts existed.
+        let mut floor_rng = Rng::new(rng::mix(seed, depth as u64));
+        let zone = Place::at_depth(depth).zone();
+        let level = dungeon::generate(&mut floor_rng, &zone.floor);
+        assert_eq!(level.start, game.player.pos);
     }
 }

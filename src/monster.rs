@@ -784,6 +784,8 @@ pub struct Monster {
     /// How the player's attacks on it are going, to warn when they
     /// aren't hurting it.
     pub wear: Wear,
+    /// Turns left that it can't heal, burned by Sunsteel.
+    pub seared: u32,
 }
 
 /// The player's attacks on one monster, as its health bar shows them.
@@ -833,6 +835,7 @@ impl Monster {
                 + deep_extra_floors(depth)) as i32,
             carrying: None,
             wear: Wear::default(),
+            seared: 0,
         };
         monster.hp = monster.max_hp();
         monster

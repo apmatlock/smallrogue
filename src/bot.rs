@@ -179,6 +179,11 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
         return action;
     }
 
+    // Facing what a carried artifact was made for: take it up first.
+    if let Some(action) = wield_slayer(game, &hunting, &adjacent) {
+        return action;
+    }
+
     // Fight whatever is next to us, weakest-looking first.
     if let Some(m) = adjacent.iter().min_by_key(|m| m.health_bar()) {
         return Action::Move(m.pos - pos);
@@ -401,6 +406,8 @@ fn worth_picking_up(game: &Game, item: &Item) -> bool {
     let known = game.lore.knows(item.kind);
     match item.kind {
         ItemKind::Potion(PotionKind::Decay) | ItemKind::Scroll(ScrollKind::Aggravate) => !known,
+        // Made for the monsters that are hardest to kill: always kept.
+        ItemKind::Weapon(w) if w.is_artifact() => true,
         ItemKind::Weapon(_) => weapon_score(game, Some(item)) > weapon_score(game, p.weapon()),
         ItemKind::Armor(_) => armor_score(Some(item)) > armor_score(p.armor()),
         _ => true,
@@ -627,6 +634,24 @@ fn weapon_score(game: &Game, item: Option<&Item>) -> i32 {
         _ => (1, 2, 0), // fists
     };
     (low + high + 2 * bonus).max(2) * (80 + 5 * accuracy)
+}
+
+/// Equips a carried artifact that slays a monster hunting us or next to
+/// us, unless the weapon in hand already does. Once the fight is over,
+/// `improve_gear` goes back to the best everyday weapon.
+fn wield_slayer(game: &Game, hunting: &[&Monster], adjacent: &[&Monster]) -> Option<Action> {
+    let p = &game.player;
+    let slays =
+        |item: &Item, m: &Monster| matches!(item.kind, ItemKind::Weapon(w) if w.slays(m.kind));
+    let foes = || hunting.iter().chain(adjacent);
+    let wielded = p.weapon();
+    if wielded.is_some_and(Item::is_stuck) || wielded.is_some_and(|w| foes().any(|m| slays(w, m))) {
+        return None;
+    }
+    p.inventory
+        .iter()
+        .find(|i| !i.equipped && foes().any(|m| slays(i, m)))
+        .map(|i| Action::Equip(i.letter))
 }
 
 /// Protection per hit counts double against the dodge it costs.
@@ -1442,5 +1467,40 @@ mod tests {
         game.apply(Action::Wait);
         assert_eq!(game.player.hunger(), Hunger::Hungry);
         assert_eq!(watch.reason_to_stop(&game), Some(String::new()));
+    }
+
+    #[test]
+    fn it_takes_up_a_slayer_for_its_prey_and_puts_it_away_after() {
+        use crate::item::WeaponKind;
+        use crate::monster::Kind;
+        let mut game = quiet_room();
+        let sunsteel = Item::new(ItemKind::Weapon(WeaponKind::Sunsteel));
+        let letter = game.player.add_item(sunsteel).unwrap();
+        // Make the everyday weapon clearly better, so it's swapped back.
+        let axe = Item::enchanted(ItemKind::Weapon(WeaponKind::Axe), 3);
+        let axe_letter = game.player.add_item(axe).unwrap();
+        game.player.item_mut(axe_letter).unwrap().known = true;
+        let mut memory = BotMemory::default();
+        assert_eq!(next_action(&game, &mut memory), Action::Equip(axe_letter));
+        game.apply(Action::Equip(axe_letter));
+        let vampire = hunter_at(&game, Kind::Vampire, Point::new(4, 5));
+        game.monsters.push(vampire);
+        game.update_fov();
+        assert_eq!(next_action(&game, &mut memory), Action::Equip(letter));
+        game.monsters.clear();
+        game.apply(Action::Equip(letter));
+        assert_eq!(next_action(&game, &mut memory), Action::Equip(axe_letter));
+    }
+
+    #[test]
+    fn auto_explore_always_wants_an_artifact() {
+        use crate::item::WeaponKind;
+        let mut game = quiet_room();
+        let axe = Item::enchanted(ItemKind::Weapon(WeaponKind::Axe), 5);
+        let letter = game.player.add_item(axe).unwrap();
+        game.player.item_mut(letter).unwrap().known = true;
+        game.apply(Action::Equip(letter));
+        let hellbane = Item::new(ItemKind::Weapon(WeaponKind::Hellbane));
+        assert!(worth_picking_up(&game, &hellbane));
     }
 }

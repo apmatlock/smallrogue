@@ -72,7 +72,7 @@ impl Game {
     pub(crate) fn drink_blood(&mut self, i: usize, damage: i32) {
         let m = &mut self.monsters[i];
         let max = m.max_hp();
-        if m.hp < max {
+        if m.hp < max && m.seared == 0 {
             m.hp = (m.hp + damage / 2).min(max);
             let name = m.name();
             self.log(&format!("The {name} drinks your blood and looks stronger."));
@@ -367,5 +367,100 @@ mod tests {
             game.apply(Action::Move(Point::new(1, 0)));
         }
         assert_eq!(scratch_warnings(&game), 0);
+    }
+
+    fn wield(game: &mut Game, kind: crate::item::WeaponKind) {
+        for i in game.player.inventory.iter_mut() {
+            if matches!(i.kind, ItemKind::Weapon(_)) {
+                i.equipped = false;
+            }
+        }
+        let mut item = Item::new(ItemKind::Weapon(kind));
+        item.equipped = true;
+        item.known = true;
+        game.player.add_item(item).unwrap();
+    }
+
+    /// Attacks the monster east of the player until one attack lands,
+    /// returning the damage it did. The log must name the attack with
+    /// `verb`.
+    fn land_a_hit(game: &mut Game, verb: &str) -> i32 {
+        let start = format!("You {verb} the");
+        for _ in 0..50 {
+            let hp = game.monsters[0].hp;
+            game.apply(Action::Move(Point::new(1, 0)));
+            if game.monsters[0].hp < hp {
+                let recent = game.log.iter().rev().take(4);
+                assert!(
+                    recent.clone().any(|m| m.text.starts_with(&start)),
+                    "no \"{start}\""
+                );
+                return hp - game.monsters[0].hp;
+            }
+        }
+        panic!("never landed a hit");
+    }
+
+    #[test]
+    fn sunsteel_sears_the_undead_so_they_cannot_heal() {
+        use crate::item::{SEAR_TURNS, WeaponKind};
+        let mut game = room_game();
+        game.player.hp = 100_000;
+        game.player.max_hp = 100_000;
+        wield(&mut game, WeaponKind::Sunsteel);
+        let vampire = Monster::at_depth(
+            Kind::Vampire,
+            Point::new(3, 5),
+            Ai::Hunting {
+                last_seen: game.player.pos,
+            },
+            30,
+        );
+        game.monsters.push(vampire);
+        land_a_hit(&mut game, "sear");
+        assert!(game.monsters[0].seared > 0);
+        // Seared: no regeneration and no blood.
+        let hp = game.monsters[0].hp;
+        game.drink_blood(0, 40);
+        assert_eq!(game.monsters[0].hp, hp, "drank through its burns");
+        game.monsters[0].ai = Ai::Asleep;
+        game.monsters[0].seared = 1;
+        game.apply(Action::Wait);
+        assert_eq!(game.monsters[0].hp, hp, "healed while seared");
+        // Once the burn fades, it heals again.
+        game.apply(Action::Wait);
+        assert!(game.monsters[0].hp > hp);
+        assert_eq!(game.monsters[0].seared, 0);
+        let _ = SEAR_TURNS;
+    }
+
+    #[test]
+    fn hellbane_triples_damage_to_demons_only() {
+        use crate::item::WeaponKind;
+        let fight = |kind: Kind, weapon: WeaponKind, verb: &str| {
+            let mut game = room_game();
+            game.player.hp = 100_000;
+            game.player.max_hp = 100_000;
+            game.player.strength = 2; // no strength bonus
+            wield(&mut game, weapon);
+            let m = Monster::at_depth(kind, Point::new(3, 5), Ai::Asleep, 40);
+            game.monsters.push(m);
+            (0..20)
+                .map(|_| land_a_hit(&mut game, verb))
+                .collect::<Vec<_>>()
+        };
+        // Every smite is a tripled hit; ordinary hits come in any size.
+        let smites = fight(Kind::Demon, WeaponKind::Hellbane, "smite");
+        assert!(smites.iter().all(|d| d % 3 == 0), "{smites:?}");
+        let hits = fight(Kind::Ogre, WeaponKind::Hellbane, "hit");
+        assert!(hits.iter().any(|d| d % 3 != 0), "{hits:?}");
+    }
+
+    #[test]
+    fn artifacts_go_by_their_names() {
+        use crate::item::WeaponKind;
+        let game = room_game();
+        let sunsteel = Item::new(ItemKind::Weapon(WeaponKind::Sunsteel));
+        assert_eq!(game.lore.with_article(&sunsteel), "Sunsteel");
     }
 }

@@ -149,6 +149,7 @@ The sidebar shows the zone you're in, your health, food, attributes, depth, turn
 **Items** are scattered on every floor.
 
 - Weapons: dagger, sword, mace and battle axe. Lighter weapons hit more often; heavier ones hit harder.
+- Artifacts, drawn in gold, are rare: about one run in three holds each, at most once. **Sunsteel**, somewhere on floors 13-20, does double damage to the undead (zombies, skeletons, draugr, ghouls, wraiths, vampires) and trolls, and its burns stop them healing for 5 turns. **Hellbane**, somewhere on floors 22-28, does triple damage to demons and oni. Their names show at once; only the enchantment needs finding out. Carry one and swap it in when its prey turns up.
 - Armor: leather, chain mail and plate. Heavier armor protects more but makes you easier to hit.
 - Rings: regeneration, accuracy, protection and awareness, which widens your sight. You can wear two.
 - Enchantments make items stronger or weaker: weapons and armor roll from -3 to +2, rings from -3 to +3.

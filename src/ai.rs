@@ -38,9 +38,12 @@ impl Game {
         // read the others (to avoid walking into them), which a
         // mutable iterator over the Vec would not allow.
         for i in 0..self.monsters.len() {
-            // Regenerating monsters heal about 3% of full health a turn.
+            // Regenerating monsters heal about 3% of full health a turn,
+            // unless seared.
             let m = &mut self.monsters[i];
-            if m.species().has(Ability::Regenerates) {
+            if m.seared > 0 {
+                m.seared -= 1;
+            } else if m.species().has(Ability::Regenerates) {
                 let max = m.max_hp();
                 m.hp = (m.hp + (max * 3 / 100).max(1)).min(max);
             }

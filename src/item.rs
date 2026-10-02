@@ -5,7 +5,8 @@
 
 use crate::dungeon::{self, Level};
 use crate::geom::Point;
-use crate::rng::Rng;
+use crate::monster::Kind;
+use crate::rng::{self, Rng};
 
 /// A cursed item stays stuck for this many turns per point below zero.
 pub const CURSE_TURNS_PER_POINT: u32 = 50;
@@ -16,6 +17,9 @@ pub enum WeaponKind {
     Sword,
     Mace,
     Axe,
+    /// Artifacts: one of each at most per run, never rolled at random.
+    Sunsteel,
+    Hellbane,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -116,8 +120,60 @@ pub struct MagicStats {
     pub weight: i32,
 }
 
+/// What an artifact weapon is made to kill, and what it does to them.
+pub struct Slaying {
+    pub prey: &'static [Kind],
+    /// Damage is multiplied by this against its prey.
+    pub multiplier: i32,
+    /// Its hits stop the prey healing for `SEAR_TURNS`.
+    pub sears: bool,
+    /// The verb in "You sear the vampire for 40."
+    pub verb: &'static str,
+}
+
+/// Turns a seared monster can't heal, by regenerating or drinking blood.
+pub const SEAR_TURNS: u32 = 5;
+
 impl WeaponKind {
+    /// The ordinary weapons, as found at random.
     pub const ALL: [WeaponKind; 4] = [Self::Dagger, Self::Sword, Self::Mace, Self::Axe];
+    pub const ARTIFACTS: [WeaponKind; 2] = [Self::Sunsteel, Self::Hellbane];
+
+    pub fn is_artifact(self) -> bool {
+        Self::ARTIFACTS.contains(&self)
+    }
+
+    /// What it slays, if it's an artifact.
+    pub fn slaying(self) -> Option<&'static Slaying> {
+        match self {
+            Self::Sunsteel => Some(&Slaying {
+                prey: &[
+                    Kind::Zombie,
+                    Kind::Skeleton,
+                    Kind::Draugr,
+                    Kind::Ghoul,
+                    Kind::Wraith,
+                    Kind::Vampire,
+                    Kind::Troll,
+                ],
+                multiplier: 2,
+                sears: true,
+                verb: "sear",
+            }),
+            Self::Hellbane => Some(&Slaying {
+                prey: &[Kind::Demon, Kind::Oni],
+                multiplier: 3,
+                sears: false,
+                verb: "smite",
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether it's made to kill this kind of monster.
+    pub fn slays(self, kind: Kind) -> bool {
+        self.slaying().is_some_and(|s| s.prey.contains(&kind))
+    }
 
     pub fn stats(self) -> &'static WeaponStats {
         match self {
@@ -148,6 +204,20 @@ impl WeaponKind {
                 accuracy: -3,
                 about: "Brutal when it lands, but slow to swing.",
                 weight: 1,
+            },
+            Self::Sunsteel => &WeaponStats {
+                name: "Sunsteel",
+                damage: (2, 6),
+                accuracy: 1,
+                about: "A silver sword that holds the light of dawn. Double damage to the undead and trolls, and its burns stop them healing for a few turns.",
+                weight: 0,
+            },
+            Self::Hellbane => &WeaponStats {
+                name: "Hellbane",
+                damage: (2, 7),
+                accuracy: 0,
+                about: "A blessed mace etched with prayers. Triple damage to demons and oni.",
+                weight: 0,
             },
         }
     }
@@ -521,6 +591,41 @@ pub fn spawn_for_floor(rng: &mut Rng, level: &Level, weights: &ItemWeights) -> V
     items
 }
 
+/// Chance, in percent, that a run holds a given artifact at all.
+pub const ARTIFACT_PERCENT: i32 = 33;
+
+/// The floors an artifact may lie on: from around where its prey
+/// starts turning up.
+fn artifact_depths(kind: WeaponKind) -> (u32, u32) {
+    match kind {
+        WeaponKind::Sunsteel => (13, 20),
+        _ => (22, 28),
+    }
+}
+
+/// The artifacts lying on this floor of this run. Rolled from their own
+/// generator, so whether a run has them changes nothing else about it.
+pub fn artifacts_on_floor(seed: u64, depth: u32) -> Vec<WeaponKind> {
+    let mut rng = Rng::new(rng::mix(seed, 0x4152_5446));
+    WeaponKind::ARTIFACTS
+        .into_iter()
+        .filter(|&kind| {
+            let found = rng.chance(ARTIFACT_PERCENT);
+            let (low, high) = artifact_depths(kind);
+            let floor = rng.range(low as i32, high as i32 + 1) as u32;
+            found && floor == depth
+        })
+        .collect()
+}
+
+/// An artifact as found: never cursed, sometimes enchanted.
+pub fn artifact(rng: &mut Rng, kind: WeaponKind) -> Item {
+    Item::enchanted(
+        ItemKind::Weapon(kind),
+        weighted(rng, &[(0, 60), (1, 30), (2, 10)]),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +683,41 @@ mod tests {
                 assert_eq!(level.map.tile(fi.pos), crate::map::Tile::Floor);
                 assert!(items[i + 1..].iter().all(|o| o.pos != fi.pos));
             }
+        }
+    }
+
+    #[test]
+    fn artifacts_are_rare_unique_and_deep_enough() {
+        for kind in WeaponKind::ARTIFACTS {
+            let (low, high) = artifact_depths(kind);
+            let mut runs_with = 0;
+            for seed in 0..3_000 {
+                let floors: Vec<u32> = (1..=40)
+                    .filter(|&d| artifacts_on_floor(seed, d).contains(&kind))
+                    .collect();
+                assert!(floors.len() <= 1, "seed {seed}: {kind:?} twice");
+                if let Some(&d) = floors.first() {
+                    assert!((low..=high).contains(&d), "{kind:?} on {d}");
+                    runs_with += 1;
+                }
+            }
+            let percent = runs_with * 100 / 3_000;
+            assert!(
+                (28..=38).contains(&percent),
+                "{kind:?} in {percent}% of runs"
+            );
+        }
+    }
+
+    #[test]
+    fn artifacts_never_turn_up_at_random_or_cursed() {
+        let mut rng = Rng::new(4);
+        for _ in 0..20_000 {
+            let item = random_item(&mut rng, &ItemWeights::STANDARD);
+            assert!(!matches!(item.kind, ItemKind::Weapon(w) if w.is_artifact()));
+        }
+        for _ in 0..1_000 {
+            assert!(artifact(&mut rng, WeaponKind::Sunsteel).enchant >= 0);
         }
     }
 }

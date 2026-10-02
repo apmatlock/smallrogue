@@ -46,6 +46,8 @@ const SYLLABLES: [&str; 20] = [
 ];
 
 const WEAPON_COLOR: Rgb = Rgb(170, 175, 195);
+/// Gold, so an artifact stands out on the floor.
+const ARTIFACT_COLOR: Rgb = Rgb(255, 200, 40);
 const ARMOR_COLOR: Rgb = Rgb(160, 135, 100);
 const SCROLL_COLOR: Rgb = Rgb(225, 215, 185);
 const FOOD_COLOR: Rgb = Rgb(190, 140, 90);
@@ -137,6 +139,7 @@ impl Lore {
     /// color of their appearance, so the color gives nothing away.
     pub fn color(&self, kind: ItemKind) -> Rgb {
         match kind {
+            ItemKind::Weapon(w) if w.is_artifact() => ARTIFACT_COLOR,
             ItemKind::Weapon(_) => WEAPON_COLOR,
             ItemKind::Armor(_) => ARMOR_COLOR,
             ItemKind::Potion(p) => self.potion_look(p).1,
@@ -182,10 +185,12 @@ impl Lore {
     }
 
     /// The name with "a"/"an" in front when there is just one. Armor
-    /// names like "chain mail" read better without one.
+    /// names like "chain mail" read better without one, and artifacts
+    /// have names of their own.
     pub fn with_article(&self, item: &Item) -> String {
         let name = self.name(item);
-        if item.count > 1 || matches!(item.kind, ItemKind::Armor(_)) {
+        let named = matches!(item.kind, ItemKind::Weapon(w) if w.is_artifact());
+        if item.count > 1 || named || matches!(item.kind, ItemKind::Armor(_)) {
             name
         } else {
             format!("{} {name}", article(&name))
