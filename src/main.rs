@@ -13,6 +13,7 @@
 //! - `skills`  — skills that improve by use; levels from experience
 //! - `stats`   — counts kept over a run for the death screen
 //! - `scores`  — the high score list, saved between runs
+//! - `settings` — player settings, saved between runs
 //! - `record`  — recordings of runs, for replays and analysis
 //! - `analyze` — reports on recorded runs
 //! - `item`    — item kinds, their data, and spawning
@@ -61,6 +62,7 @@ mod player;
 mod record;
 mod rng;
 mod scores;
+mod settings;
 mod sim;
 mod skills;
 mod stats;
@@ -419,6 +421,13 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
     } else {
         None
     };
+    // The saved setting goes in as an action, so it's recorded.
+    let saved = settings::default_path()
+        .map(|p| settings::load(&p))
+        .unwrap_or_default();
+    if !saved.auto_pickup {
+        game.apply(Action::AutoPickup(false));
+    }
     let mut depth_recorded = game.depth;
     // Who chose the actions the game is about to report.
     let mut source = Source::You;
@@ -530,6 +539,7 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
                 }
             }
             Command::ToggleBot => start_bot(&mut game, &mut autoplay),
+            Command::ToggleAutoPickup => toggle_auto_pickup(&mut game),
             Command::Redraw => {}
             Command::Quit => {
                 // The run ends like a death, with the same screen and
@@ -542,6 +552,19 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
                 }
             }
         }
+    }
+}
+
+/// Flips auto pickup and saves the choice for later runs.
+fn toggle_auto_pickup(game: &mut Game) {
+    game.apply(Action::AutoPickup(!game.auto_pickup));
+    let settings = settings::Settings {
+        auto_pickup: game.auto_pickup,
+    };
+    if let Some(path) = settings::default_path()
+        && let Err(e) = settings::save(&path, settings)
+    {
+        game.log(&format!("Couldn't save the setting: {e}"));
     }
 }
 

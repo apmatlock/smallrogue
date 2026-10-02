@@ -131,6 +131,11 @@ fn study(file: &Path, recording: Recording) -> Run {
             game.give_up();
             break;
         };
+        // A setting, not a move: nothing for the bot to compare.
+        if let Action::AutoPickup(_) = action {
+            game.apply(action);
+            continue;
+        }
         // Asked every step, so the bot's memory follows the run.
         let bot_choice = bot::next_action(&game, &mut memory);
         if entry.source == Source::You {
@@ -206,6 +211,7 @@ fn kind(action: Action) -> &'static str {
         Action::Drink(_) => "drink",
         Action::Eat(_) => "eat",
         Action::Read { .. } => "read",
+        Action::AutoPickup(_) => "auto pickup",
     }
 }
 

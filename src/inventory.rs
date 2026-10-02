@@ -515,6 +515,24 @@ mod tests {
     }
 
     #[test]
+    fn with_auto_pickup_off_items_stay_put() {
+        let mut game = room_game();
+        game.apply(Action::AutoPickup(false));
+        assert_eq!(game.turn, 0, "changing the setting is free");
+        let dagger = Item::new(ItemKind::Weapon(WeaponKind::Dagger));
+        game.items.push(FloorItem {
+            pos: Point::new(3, 5),
+            item: dagger,
+        });
+        game.apply(Action::Move(Point::new(1, 0)));
+        assert_eq!(game.items.len(), 1);
+        assert_eq!(last_log(&game), "You see a dagger here.");
+        game.apply(Action::PickUp);
+        assert!(game.items.is_empty());
+        assert_eq!(last_log(&game), "You pick up a dagger (e).");
+    }
+
+    #[test]
     fn dropping_and_picking_up_again() {
         let mut game = room_game();
         game.apply(Action::Drop('a'));

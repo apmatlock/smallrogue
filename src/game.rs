@@ -88,6 +88,9 @@ pub enum Action {
         scroll: char,
         target: Option<char>,
     },
+    /// Turn picking up by walking over items on or off. Takes no time;
+    /// it's an action so recordings keep the setting and replay exactly.
+    AutoPickup(bool),
 }
 
 pub struct Game {
@@ -132,6 +135,9 @@ pub struct Game {
     /// When recording, every action applied, oldest first, for the
     /// recorder to collect. `None` (the default) keeps nothing.
     pub journal: Option<Vec<Action>>,
+    /// Whether walking onto an item picks it up. On at the start of
+    /// every run; the player's saved choice is applied as an action.
+    pub auto_pickup: bool,
     /// How low health has been warned about: 0 none, 1 below half,
     /// 2 below a quarter.
     health_warned: u8,
@@ -159,6 +165,7 @@ impl Game {
             rng: Rng::new(rng::mix(seed, u64::MAX)),
             stats: Stats::default(),
             journal: None,
+            auto_pickup: true,
             health_warned: 0,
         };
         // The fighter knows the healing potion they start with.
@@ -278,6 +285,7 @@ impl Game {
             Action::Drink(letter) => self.drink(letter),
             Action::Eat(letter) => self.eat(letter),
             Action::Read { scroll, target } => self.read(scroll, target),
+            Action::AutoPickup(on) => self.set_auto_pickup(on),
         };
         if outcome == Outcome::Free {
             return;
@@ -403,9 +411,15 @@ impl Game {
                 if tile == Tile::StairsDown {
                     self.log("There is a staircase down here. Press > to descend.");
                 }
-                // Walking onto an item picks it up as part of the move.
-                if self.item_at(target).is_some() {
-                    self.pick_up();
+                // Walking onto an item picks it up as part of the move,
+                // unless the player turned that off.
+                if self.auto_pickup {
+                    if self.item_at(target).is_some() {
+                        self.pick_up();
+                    }
+                } else if let Some(fi) = self.item_at(target) {
+                    let name = self.lore.with_article(&fi.item);
+                    self.log(&format!("You see {name} here."));
                 }
                 Outcome::TookTurn
             }
@@ -414,6 +428,16 @@ impl Game {
                 Outcome::Free
             }
         }
+    }
+
+    fn set_auto_pickup(&mut self, on: bool) -> Outcome {
+        self.auto_pickup = on;
+        self.log(if on {
+            "Auto pickup is on: walking over items picks them up."
+        } else {
+            "Auto pickup is off: press g to pick things up."
+        });
+        Outcome::Free
     }
 
     fn descend(&mut self) -> Outcome {

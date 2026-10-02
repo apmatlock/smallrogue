@@ -78,9 +78,10 @@ This plays seeds 1 to 200, printing a line as each run finishes, then the averag
 | Move into a closed door | Open it |
 | `.` | Wait one turn (rest) |
 | `>` | Descend while standing on stairs; otherwise walk to stairs you have seen |
-| `x` | Explore: walk to unexplored areas and pick up items until something happens |
+| `x` | Explore: walk to unexplored areas and pick up items until something happens (with auto pickup off, it leaves items alone) |
 | `c` | Close an adjacent open door; choose a direction if several are nearby |
 | `g` or `,` | Pick up an item (walking over an item also picks it up) |
+| `@` | Auto pickup on or off; the choice is saved for later runs |
 | `i` | Open your pack; press an item's letter for details and actions |
 | `C` | Character sheet: level, experience, attributes, combat numbers and skills |
 | `e` | Equip or remove a weapon, armor or ring |

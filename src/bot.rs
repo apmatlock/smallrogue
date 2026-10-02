@@ -211,6 +211,11 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     // reachable, head down. Short runs reward depth, not thoroughness.
     // Items along the way still get picked up by walking over them, and
     // ones seen nearby are fetched first.
+    // With auto pickup off, walking over an item leaves it there, so
+    // the bot picks it up itself.
+    if !game.auto_pickup && item_underfoot_wanted(game) {
+        return Action::PickUp;
+    }
     if known_stairs(game).is_some() && memory.plan.is_none() {
         memory.plan = consider_fetch(game, &memory.gave_up_on);
         if let Some(action) = follow_plan(game, memory) {
@@ -223,7 +228,7 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     if let Some(action) = stairs_step(game) {
         return action;
     }
-    if let Some(action) = explore_step(game) {
+    if let Some(action) = explore(game, true) {
         return action;
     }
     // Nothing left to explore and no way to the stairs: a sleeping
@@ -353,25 +358,35 @@ fn give_up(memory: &mut BotMemory) {
 
 /// One step of auto-explore: toward the nearest item worth picking up
 /// or the nearest edge of the explored area. `None` once the floor is
-/// fully explored (or the rest is out of reach).
+/// fully explored (or the rest is out of reach). With auto pickup off,
+/// items are left to the player.
 pub fn explore_step(game: &Game) -> Option<Action> {
+    explore(game, game.auto_pickup)
+}
+
+/// Exploring, collecting items on the way if `collect` is set. The bot
+/// always collects, whatever the player's auto pickup setting.
+fn explore(game: &Game, collect: bool) -> Option<Action> {
     // The path search never counts the starting tile as a goal, so an
     // item underfoot (say, left there when the pack was full) is
     // handled here first.
-    if game
-        .item_at(game.player.pos)
-        .is_some_and(|fi| worth_picking_up(game, &fi.item))
-    {
+    if collect && item_underfoot_wanted(game) {
         return Some(Action::PickUp);
     }
     let is_goal = |p: Point| {
-        let wanted = game.map.is_revealed(p)
+        let wanted = collect
+            && game.map.is_revealed(p)
             && game
                 .item_at(p)
                 .is_some_and(|fi| worth_picking_up(game, &fi.item));
         wanted || is_frontier(game, p)
     };
     step_to(game, is_goal)
+}
+
+fn item_underfoot_wanted(game: &Game) -> bool {
+    game.item_at(game.player.pos)
+        .is_some_and(|fi| worth_picking_up(game, &fi.item))
 }
 
 /// Should the bot bother walking to this item? It skips things it knows
@@ -798,6 +813,41 @@ mod tests {
         assert_eq!(explore_step(&game), Some(Action::PickUp));
         game.apply(Action::PickUp);
         assert!(game.item_at(pos).is_none());
+    }
+
+    #[test]
+    fn with_auto_pickup_off_explore_leaves_items_but_the_bot_does_not() {
+        use crate::item::{FloorItem, Item, PotionKind};
+        let mut game = Game::new(1);
+        game.monsters.clear();
+        game.apply(Action::AutoPickup(false));
+        let pos = game.player.pos;
+        let potion = Item::new(ItemKind::Potion(PotionKind::Healing));
+        game.items.push(FloorItem { pos, item: potion });
+        assert_ne!(explore_step(&game), Some(Action::PickUp));
+        let mut memory = BotMemory::default();
+        assert_eq!(next_action(&game, &mut memory), Action::PickUp);
+    }
+
+    #[test]
+    fn auto_explore_with_pickup_off_still_explores_everything() {
+        let mut game = Game::new(2);
+        game.monsters.clear();
+        game.apply(Action::AutoPickup(false));
+        let items = game.items.len();
+        let mut steps = 0;
+        while let Some(action) = explore_step(&game) {
+            game.apply(action);
+            steps += 1;
+            assert!(steps < 5000);
+        }
+        assert_eq!(game.items.len(), items, "nothing was picked up");
+        let unseen = game
+            .map
+            .points()
+            .filter(|&p| game.map.tile(p).is_passable() && !game.map.is_revealed(p))
+            .count();
+        assert_eq!(unseen, 0);
     }
 
     #[test]

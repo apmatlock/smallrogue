@@ -35,6 +35,8 @@ pub enum Command {
     Explore,
     /// Hand the game to the bot, or take it back.
     ToggleBot,
+    /// Turn picking up by walking over items on or off.
+    ToggleAutoPickup,
     /// Close a door. Needs a direction if several doors are adjacent,
     /// which the main loop sorts out.
     Close,
@@ -163,6 +165,7 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         KeyCode::Char('>') => Some(Command::Descend),
         KeyCode::Char('x') => Some(Command::Explore),
         KeyCode::Char('B') => Some(Command::ToggleBot),
+        KeyCode::Char('@') => Some(Command::ToggleAutoPickup),
         KeyCode::Char('c') => Some(Command::Close),
         KeyCode::Char('g' | ',') => Some(Command::Act(Action::PickUp)),
         KeyCode::Char('i') => Some(Command::Inventory),
@@ -218,6 +221,7 @@ mod tests {
         assert!(matches!(plain(';'), Some(Command::Look)));
         assert!(matches!(plain('m'), Some(Command::History)));
         assert!(matches!(plain('l'), Some(Command::Act(_))), "l still moves");
+        assert!(matches!(plain('@'), Some(Command::ToggleAutoPickup)));
     }
 
     #[test]

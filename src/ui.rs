@@ -322,6 +322,7 @@ pub fn help_lines() -> Vec<Line> {
             "x                explore until something happens",
             "c                close a door",
             "g                pick up (walking over also works)",
+            "@                auto pickup on or off",
             "i                inventory",
             "C                character: level, attributes, skills",
             "e                equip or remove",

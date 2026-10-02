@@ -201,6 +201,7 @@ pub(crate) fn step_text(step: Step) -> String {
             scroll,
             target: Some(t),
         } => format!("read {scroll} {t}"),
+        Action::AutoPickup(on) => format!("autopickup {}", if on { "on" } else { "off" }),
     }
 }
 
@@ -223,6 +224,11 @@ fn parse_step(words: &[&str]) -> Option<Step> {
         "descend" => Action::Descend,
         "close" => Action::Close(dir()?),
         "pickup" => Action::PickUp,
+        "autopickup" => Action::AutoPickup(match *words.get(1)? {
+            "on" => true,
+            "off" => false,
+            _ => return None,
+        }),
         "drop" => Action::Drop(letter(1)?),
         "equip" => Action::Equip(letter(1)?),
         "drink" => Action::Drink(letter(1)?),
@@ -363,6 +369,8 @@ mod tests {
                 scroll: 'e',
                 target: Some('f'),
             },
+            Action::AutoPickup(true),
+            Action::AutoPickup(false),
         ];
         for action in actions {
             let text = step_text(Step::Act(action));
@@ -372,6 +380,7 @@ mod tests {
         assert_eq!(parse_step(&["quit"]), Some(Step::Quit));
         assert_eq!(parse_step(&["drink", "ab"]), None);
         assert_eq!(parse_step(&["fly"]), None);
+        assert_eq!(parse_step(&["autopickup", "maybe"]), None);
     }
 
     /// The whole point: the bot plays a while, its journal becomes a
