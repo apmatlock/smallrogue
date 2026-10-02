@@ -9,7 +9,7 @@ use crate::dungeon;
 use crate::fov;
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::grid::Grid;
-use crate::item::{self, FloorItem, Item, ItemKind, PotionKind};
+use crate::item::{self, FloorItem, ItemKind, PotionKind};
 use crate::lore::Lore;
 use crate::map::{Map, Tile};
 use crate::monster::{self, Ability, Ai, Monster};
@@ -318,8 +318,9 @@ impl Game {
     }
 
     /// Says so when health falls below half, then below a quarter,
-    /// pointing at known healing if the player carries any. Recorded
-    /// runs showed players dying with healing potions in the pack.
+    /// with the keys to drink known healing if the player carries any.
+    /// Recorded runs showed players dying with healing potions in the
+    /// pack. Kept short so the keys fit the message line.
     ///
     /// A warning isn't repeated until health has recovered well above
     /// its line, so a fight hovering around it doesn't fill the log.
@@ -332,16 +333,13 @@ impl Game {
         };
         if band > self.health_warned {
             self.health_warned = band;
-            let text = if band == 2 {
-                "You are badly hurt!"
-            } else {
-                "You are below half health."
+            let text = match (band, self.known_healing()) {
+                (2, Some(letter)) => format!("Badly hurt! q then {letter} to heal."),
+                (_, Some(letter)) => format!("Below half health: q then {letter} to heal."),
+                (2, None) => "You are badly hurt!".to_string(),
+                (_, None) => "You are below half health.".to_string(),
             };
-            let hint = match self.known_healing() {
-                Some(name) => format!(" You have {name}: q to drink."),
-                None => String::new(),
-            };
-            self.log_as(&format!("{text}{hint}"), MsgKind::Bad);
+            self.log_as(&text, MsgKind::Bad);
         } else if band < self.health_warned {
             let line = if self.health_warned == 2 { 25 } else { 50 };
             if percent > line + HEALTH_WARNING_MARGIN {
@@ -365,21 +363,15 @@ impl Game {
             .sum()
     }
 
-    /// A potion the player carries and knows will heal, as "a potion of
-    /// healing", if any.
-    pub fn known_healing(&self) -> Option<String> {
+    /// The pack letter of a potion the player carries and knows will
+    /// heal, if any. Healing comes before life, which is rarer.
+    pub fn known_healing(&self) -> Option<char> {
         [PotionKind::Healing, PotionKind::Life]
             .into_iter()
             .map(ItemKind::Potion)
             .filter(|&k| self.lore.knows(k))
             .find_map(|k| self.player.inventory.iter().find(|i| i.kind == k))
-            .map(|item| {
-                let one = Item {
-                    count: 1,
-                    ..item.clone()
-                };
-                self.lore.with_article(&one)
-            })
+            .map(|item| item.letter)
     }
 
     fn move_player(&mut self, delta: Point, warned: Option<Point>) -> Outcome {
@@ -879,15 +871,12 @@ mod tests {
             g.apply(Action::Wait);
         };
         at(&mut game, 45);
-        assert_eq!(
-            last(&game),
-            "You are below half health. You have a potion of healing: q to drink."
-        );
+        assert_eq!(last(&game), "Below half health: q then c to heal.");
         let logged = game.log.len();
         at(&mut game, 45);
         assert_eq!(game.log.len(), logged, "not repeated");
         at(&mut game, 20);
-        assert!(last(&game).starts_with("You are badly hurt!"));
+        assert_eq!(last(&game), "Badly hurt! q then c to heal.");
         // A small recovery doesn't re-arm the warning...
         let logged = game.log.len();
         at(&mut game, 30);

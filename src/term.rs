@@ -26,7 +26,12 @@ impl Terminal {
         install_panic_hook();
         terminal::enable_raw_mode()?;
         let mut out = BufWriter::new(io::stdout());
-        execute!(out, terminal::EnterAlternateScreen, cursor::Hide)?;
+        if let Err(e) = execute!(out, terminal::EnterAlternateScreen, cursor::Hide) {
+            // There's no `Terminal` yet whose drop would undo raw mode,
+            // so undo it here; otherwise the shell is left unusable.
+            restore_terminal();
+            return Err(e);
+        }
         Ok(Self {
             out,
             previous: None,
