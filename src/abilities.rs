@@ -434,6 +434,28 @@ mod tests {
         let _ = SEAR_TURNS;
     }
 
+    /// Seared for one last turn, a vampire's bites that turn heal it no
+    /// more than its regeneration does.
+    #[test]
+    fn the_last_seared_turn_still_stops_blood() {
+        let mut game = room_game();
+        game.player.hp = 100_000;
+        game.player.max_hp = 100_000;
+        let mut vampire = hunter(&game, Kind::Vampire, Point::new(3, 5));
+        vampire.hp = 1;
+        game.monsters.push(vampire);
+        let mut bites = 0;
+        for _ in 0..100 {
+            game.monsters[0].seared = 1;
+            let (hp, before) = (game.monsters[0].hp, game.player.hp);
+            game.apply(Action::Wait);
+            assert_eq!(game.monsters[0].hp, hp, "healed on its last seared turn");
+            assert_eq!(game.monsters[0].seared, 0);
+            bites += u32::from(game.player.hp < before);
+        }
+        assert!(bites > 0, "never bit, so nothing was tested");
+    }
+
     #[test]
     fn hellbane_triples_damage_to_demons_only() {
         use crate::item::WeaponKind;
