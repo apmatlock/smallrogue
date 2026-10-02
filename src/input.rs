@@ -75,21 +75,30 @@ pub fn next_direction() -> io::Result<Option<Point>> {
     }
 }
 
-/// Waits for a key while a menu is open. Returns the character typed,
-/// or `None` for Escape and other non-character keys, which close the
-/// menu.
-pub fn next_menu_key() -> io::Result<Option<char>> {
+/// A key pressed while a menu is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuKey {
+    Char(char),
+    /// Escape or another non-character key: closes the menu.
+    Cancel,
+    /// The window changed size. Not a choice: the menu should redraw
+    /// and keep waiting.
+    Resize,
+}
+
+/// Waits for a key while a menu is open.
+pub fn next_menu_key() -> io::Result<MenuKey> {
     loop {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 return Ok(match key.code {
                     // Ctrl+D is not "d": combinations with Ctrl or Alt
                     // close the menu instead of choosing something.
-                    KeyCode::Char(c) if !has_ctrl_or_alt(key) => Some(c),
-                    _ => None,
+                    KeyCode::Char(c) if !has_ctrl_or_alt(key) => MenuKey::Char(c),
+                    _ => MenuKey::Cancel,
                 });
             }
-            Event::Resize(..) => return Ok(None),
+            Event::Resize(..) => return Ok(MenuKey::Resize),
             _ => {}
         }
     }

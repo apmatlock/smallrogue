@@ -303,13 +303,21 @@ fn left_unused(out: &mut String, runs: &[Run]) {
 
 /// Time and turns per floor, overall and by zone. Floor times come
 /// from the recordings' floor lines, so they hold even for runs that
-/// no longer replay.
+/// no longer replay. Runs the bot played any of are left out: its
+/// turns take no thinking time, so they'd make the pace look faster.
 fn pace(out: &mut String, runs: &[Run]) {
+    let bot_played = |run: &&Run| {
+        run.recording
+            .entries
+            .iter()
+            .any(|e| e.source == Source::Bot)
+    };
+    let left_out = runs.iter().filter(bot_played).count();
     // Per zone, in the order they're met: (floors finished,
     // milliseconds, turns).
     let mut by_zone: BTreeMap<usize, (u64, u64, u64)> = BTreeMap::new();
     let (mut total_ms, mut total_turns) = (0, 0);
-    for run in runs {
+    for run in runs.iter().filter(|r| !bot_played(r)) {
         let r = &run.recording;
         let mut from = (1, 0, 0); // depth, ms, turn
         for f in &r.floors {
@@ -334,6 +342,9 @@ fn pace(out: &mut String, runs: &[Run]) {
         }
     }
     let _ = writeln!(out, "\nPace");
+    if left_out > 0 {
+        let _ = writeln!(out, "  ({left_out} with bot play left out)");
+    }
     if total_turns > 0 {
         let per_100 = total_ms as f64 / total_turns as f64 / 10.0;
         let _ = writeln!(
@@ -485,6 +496,28 @@ mod tests {
         // 900 seconds of the whole recording.
         assert!(report.contains("30.0 seconds per 100 turns"), "{report}");
         assert!(report.contains("(unfinished)"));
+    }
+
+    /// Found by the Codex review of v1: a fast bot session made the
+    /// player's pace look faster.
+    #[test]
+    fn runs_with_bot_play_are_left_out_of_the_pace() {
+        let text = |source: &str, ms: u64| {
+            format!(
+                "smallrogue recording v1\nseed 3\n\
+                 100 you wait\n\
+                 200 {source} wait\n\
+                 floor 2 at {ms} turn 200\n"
+            )
+        };
+        let dir = std::env::temp_dir().join(format!("smallrogue-botpace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rec"), text("you", 60000)).unwrap();
+        std::fs::write(dir.join("b.rec"), text("bot", 1000)).unwrap();
+        let report = analyze(Some(&dir)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(report.contains("30.0 seconds per 100 turns"), "{report}");
+        assert!(report.contains("(1 with bot play left out)"), "{report}");
     }
 
     /// Writes a sample recording where `--analyze` can be tried on it.

@@ -78,7 +78,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use game::{Action, Game};
-use input::{Command, Polled, Verb};
+use input::{Command, MenuKey, Polled, Verb};
 use item::{Item, ItemKind};
 use menu::Line;
 use record::{Recorder, Source, Step};
@@ -302,23 +302,73 @@ fn start_recording(game: &mut Game) -> Option<Recorder> {
     }
 }
 
-/// Moves the actions the game has applied since last time into the
-/// recording. If writing fails, recording stops and the log says so.
-fn save_steps(recorder: &mut Option<Recorder>, game: &mut Game, played: Duration, source: Source) {
-    let Some(journal) = game.journal.as_mut() else {
-        return;
-    };
-    let steps: Vec<Step> = journal.drain(..).map(Step::Act).collect();
-    let Some(rec) = recorder.as_mut() else {
-        return;
-    };
-    if steps.is_empty() {
-        return;
+/// The recording side of a run: the file (if recording), the play
+/// clock, and the depth last noted in the file.
+struct RunLog {
+    recorder: Option<Recorder>,
+    clock: PlayClock,
+    depth_noted: u32,
+}
+
+impl RunLog {
+    fn new(recorder: Option<Recorder>, game: &Game) -> Self {
+        Self {
+            recorder,
+            clock: PlayClock::new(),
+            depth_noted: game.depth,
+        }
     }
-    if let Err(e) = rec.write(played.as_millis() as u64, source, &steps) {
-        *recorder = None;
-        game.journal = None;
-        game.log(&format!("Recording stopped: {e}"));
+
+    /// Brings the run's time up to date and moves the actions the game
+    /// has applied since last time into the recording, with a floor
+    /// line if the depth changed. Called after every action, including
+    /// each step of a walk, so closing the game mid-walk loses nothing.
+    /// If writing fails, recording stops and the log says so.
+    fn save(&mut self, game: &mut Game, source: Source) {
+        let played = self.clock.tick();
+        game.stats.seconds_played = played.as_secs();
+        let ms = played.as_millis() as u64;
+        let steps: Vec<Step> = match game.journal.as_mut() {
+            Some(journal) => journal.drain(..).map(Step::Act).collect(),
+            None => return,
+        };
+        let Some(rec) = self.recorder.as_mut() else {
+            return;
+        };
+        let mut written = if steps.is_empty() {
+            Ok(())
+        } else {
+            rec.write(ms, source, &steps)
+        };
+        if written.is_ok() && game.depth != self.depth_noted {
+            self.depth_noted = game.depth;
+            written = rec.floor(record::Floor {
+                depth: game.depth,
+                ms,
+                turn: game.turn,
+            });
+        }
+        if let Err(e) = written {
+            self.recorder = None;
+            game.journal = None;
+            game.log(&format!("Recording stopped: {e}"));
+        }
+    }
+
+    /// Notes giving up, the last step of a quit run.
+    fn quit(&mut self, source: Source) {
+        let ms = self.clock.tick().as_millis() as u64;
+        if let Some(rec) = self.recorder.as_mut() {
+            let _ = rec.write(ms, source, &[Step::Quit]);
+        }
+    }
+
+    /// Writes the end line. A failure here only costs that line;
+    /// replays still work without it.
+    fn finish(&mut self, game: &Game) {
+        if let Some(rec) = self.recorder.as_mut() {
+            let _ = rec.finish(game);
+        }
     }
 }
 
@@ -375,12 +425,12 @@ fn run(seed: Option<u64>, start_with_bot: bool, record: bool) -> io::Result<()> 
         let (w, h) = terminal.size()?;
         terminal.present(ui::draw_title(best.as_ref(), w, h))?;
         match input::next_menu_key()? {
-            Some('n') => play(&mut terminal, clock_seed(), false, record)?,
-            Some('s') => show_scores(&mut terminal)?,
-            Some('?') => {
+            MenuKey::Char('n') => play(&mut terminal, clock_seed(), false, record)?,
+            MenuKey::Char('s') => show_scores(&mut terminal)?,
+            MenuKey::Char('?') => {
                 show_box_over(&mut terminal, &ui::draw_blank, "Help", &ui::help_lines())?;
             }
-            Some('q' | 'Q') => return Ok(()),
+            MenuKey::Char('q' | 'Q') => return Ok(()),
             // Anything else, including a resize, just redraws.
             _ => {}
         }
@@ -402,10 +452,13 @@ fn show_scores(terminal: &mut Terminal) -> io::Result<()> {
         this_run: None,
         note: note.as_deref(),
     };
-    let (w, h) = terminal.size()?;
-    terminal.present(ui::draw_scores(&board, w, h))?;
-    input::next_menu_key()?;
-    Ok(())
+    loop {
+        let (w, h) = terminal.size()?;
+        terminal.present(ui::draw_scores(&board, w, h))?;
+        if input::next_menu_key()? != MenuKey::Resize {
+            return Ok(());
+        }
+    }
 }
 
 /// Plays one run from `seed` until death or giving up, ending on the
@@ -416,7 +469,7 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
     if start_with_bot {
         start_bot(&mut game, &mut autoplay);
     }
-    let mut recorder = if record {
+    let recorder = if record {
         start_recording(&mut game)
     } else {
         None
@@ -428,40 +481,23 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
     if !saved.auto_pickup {
         game.apply(Action::AutoPickup(false));
     }
-    let mut depth_recorded = game.depth;
+    let mut log = RunLog::new(recorder, &game);
     // Who chose the actions the game is about to report.
     let mut source = Source::You;
 
     // Whether the bot played any part of this run. Such runs don't
     // go on the high score list.
     let mut bot_played = false;
-    let mut clock = PlayClock::new();
 
     // The whole game loop: draw, wait for a key, apply it, repeat.
     loop {
         bot_played |= autoplay.is_some();
-        let played = clock.tick();
-        game.stats.seconds_played = played.as_secs();
-        save_steps(&mut recorder, &mut game, played, source);
-        if game.depth != depth_recorded {
-            depth_recorded = game.depth;
-            if let Some(rec) = recorder.as_mut() {
-                let _ = rec.floor(record::Floor {
-                    depth: game.depth,
-                    ms: played.as_millis() as u64,
-                    turn: game.turn,
-                });
-            }
-        }
+        log.save(&mut game, source);
         let status = autoplay.as_ref().map(Autoplay::status);
         draw_with_status(terminal, &game, status.as_deref())?;
 
         if game.death.is_some() {
-            if let Some(rec) = recorder.as_mut() {
-                // A failure here only costs the end line; replays still
-                // work without it.
-                let _ = rec.finish(&game);
-            }
+            log.finish(&game);
             let (scores, this_run, note) = record_score(&game, bot_played);
             let board = ui::Board {
                 scores: &scores,
@@ -532,9 +568,9 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
             Command::Character => {
                 show_box(terminal, &game, "Character", &ui::character_lines(&game))?;
             }
-            Command::Descend => descend_or_travel(terminal, &mut game)?,
+            Command::Descend => descend_or_travel(terminal, &mut game, &mut log)?,
             Command::Explore => {
-                if auto_move(terminal, &mut game, bot::explore_step)? {
+                if auto_move(terminal, &mut game, &mut log, bot::explore_step)? {
                     game.log("There is nothing left to explore here.");
                 }
             }
@@ -546,9 +582,7 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
                 // a place on the high scores.
                 if confirm_quit(terminal, &mut game)? {
                     game.give_up();
-                    if let Some(rec) = recorder.as_mut() {
-                        let _ = rec.write(clock.tick().as_millis() as u64, source, &[Step::Quit]);
-                    }
+                    log.quit(source);
                 }
             }
         }
@@ -579,6 +613,7 @@ fn start_bot(game: &mut Game, autoplay: &mut Option<Autoplay>) {
 fn auto_move(
     terminal: &mut Terminal,
     game: &mut Game,
+    log: &mut RunLog,
     step: fn(&Game) -> Option<Action>,
 ) -> io::Result<bool> {
     if let Some(reason) = bot::auto_blocked(game) {
@@ -592,6 +627,7 @@ fn auto_move(
         };
         let watch = bot::Watch::new(game);
         game.apply(action);
+        log.save(game, Source::Auto);
         if let Some(reason) = watch.reason_to_stop(game) {
             if !reason.is_empty() {
                 game.log(&reason);
@@ -619,12 +655,12 @@ fn will_travel(game: &Game) -> bool {
     !on_stairs && stairs_seen
 }
 
-fn descend_or_travel(terminal: &mut Terminal, game: &mut Game) -> io::Result<()> {
+fn descend_or_travel(terminal: &mut Terminal, game: &mut Game, log: &mut RunLog) -> io::Result<()> {
     if !will_travel(game) {
         game.apply(Action::Descend);
         return Ok(());
     }
-    if auto_move(terminal, game, bot::stairs_step)? {
+    if auto_move(terminal, game, log, bot::stairs_step)? {
         if game.map.tile(game.player.pos) == map::Tile::StairsDown {
             game.log("You reach the stairs. Press > again to descend.");
         } else {
@@ -674,9 +710,12 @@ fn show_box_over(
         let (frame, pages) = ui::box_over(background(w, h), (w, h), title, lines, page);
         terminal.present(frame)?;
         match input::next_menu_key()? {
-            Some(' ' | '>') if pages > 1 => page = (page + 1) % pages,
-            Some('<') if pages > 1 => page = (page + pages - 1) % pages,
-            key => return Ok(key),
+            MenuKey::Char(' ' | '>') if pages > 1 => page = (page + 1) % pages,
+            MenuKey::Char('<') if pages > 1 => page = (page + pages - 1) % pages,
+            // Redraw at the new size; a resize is never a choice.
+            MenuKey::Resize => {}
+            MenuKey::Char(c) => return Ok(Some(c)),
+            MenuKey::Cancel => return Ok(None),
         }
     }
 }
@@ -869,6 +908,34 @@ fn clock_seed() -> u64 {
 mod tests {
     use super::*;
     use geom::Point;
+
+    /// Found by the Codex review of v1: steps of a walk weren't written
+    /// until it ended, so closing the game mid-walk lost them all.
+    #[test]
+    fn each_saved_step_reaches_the_file_with_its_floor() {
+        let dir = std::env::temp_dir().join(format!("smallrogue-runlog-{}", std::process::id()));
+        let mut game = Game::new(1);
+        game.journal = Some(Vec::new());
+        let recorder = Recorder::start(&dir, game.seed).unwrap();
+        let mut log = RunLog::new(Some(recorder), &game);
+        game.apply(Action::Wait);
+        log.save(&mut game, Source::Auto);
+        game.enter_floor(2);
+        log.save(&mut game, Source::Auto);
+        // Read while the recorder is still open, as after a crash.
+        let file = std::fs::read_dir(&dir)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let recording = record::load(&file).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(recording.entries.len(), 1);
+        assert_eq!(recording.entries[0].source, Source::Auto);
+        assert_eq!(recording.floors.len(), 1);
+        assert_eq!(recording.floors[0].depth, 2);
+    }
 
     /// Found by the Codex review: `>` on the stairs was recorded as an
     /// automatic move, though only walking to them is automatic.

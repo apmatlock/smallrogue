@@ -131,8 +131,7 @@ impl Recorder {
         let now = now_utc();
         // "2026-09-30 14:05:09" becomes "2026-09-30-140509".
         let stamp = now.replace(' ', "-").replace(':', "");
-        let path = dir.join(format!("{stamp}-seed{seed}.rec"));
-        let mut out = BufWriter::new(File::create(&path)?);
+        let mut out = BufWriter::new(create_unused(dir, &format!("{stamp}-seed{seed}"))?);
         writeln!(out, "{HEADER}\nseed {seed}\nstarted {now}")?;
         out.flush()?;
         Ok(Self { out })
@@ -167,6 +166,24 @@ impl Recorder {
         )?;
         self.out.flush()
     }
+}
+
+/// Creates `NAME.rec` in `dir`, or `NAME-2.rec` and so on if that's
+/// taken (say, two games started on the same seed in the same second),
+/// so an earlier recording is never overwritten.
+fn create_unused(dir: &Path, name: &str) -> io::Result<File> {
+    for n in 1.. {
+        let file = if n == 1 {
+            format!("{name}.rec")
+        } else {
+            format!("{name}-{n}.rec")
+        };
+        match File::create_new(dir.join(file)) {
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists && n < 100 => continue,
+            result => return result,
+        }
+    }
+    unreachable!("the loop returns by the 100th try")
 }
 
 /// Where recordings are kept: next to the high scores.
@@ -348,6 +365,25 @@ pub fn replay(recording: &Recording) -> Game {
 mod tests {
     use super::*;
     use crate::bot;
+
+    /// Found by the Codex review of v1: a second recording started in
+    /// the same second on the same seed replaced the first.
+    #[test]
+    fn recordings_never_overwrite_each_other() {
+        let dir = std::env::temp_dir().join(format!("smallrogue-names-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("run.rec"), "first").unwrap();
+        create_unused(&dir, "run").unwrap();
+        create_unused(&dir, "run").unwrap();
+        let first = std::fs::read_to_string(dir.join("run.rec")).unwrap();
+        let made = [
+            dir.join("run-2.rec").exists(),
+            dir.join("run-3.rec").exists(),
+        ];
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(first, "first");
+        assert_eq!(made, [true, true]);
+    }
 
     #[test]
     fn every_action_survives_a_round_trip() {
