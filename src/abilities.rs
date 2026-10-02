@@ -175,7 +175,7 @@ mod tests {
     use crate::geom::Point;
     use crate::item::{ArmorKind, Item, ItemKind};
     use crate::map::Map;
-    use crate::monster::{Ai, Kind, Monster};
+    use crate::monster::{Ai, HEALTH_BAR_CELLS, Kind, Monster};
 
     fn room_game() -> Game {
         let mut game = Game::new(1);
@@ -319,5 +319,53 @@ mod tests {
         assert!(game.monsters.len() > 1, "never split");
         assert!(game.monsters.len() <= super::MAX_JELLIES);
         assert!(total(&game) <= 1_000, "splitting never creates health");
+    }
+
+    fn scratch_warnings(game: &Game) -> usize {
+        game.log
+            .iter()
+            .filter(|m| m.text.contains("barely scratch"))
+            .count()
+    }
+
+    #[test]
+    fn attacks_that_never_wear_a_monster_down_get_one_warning() {
+        let mut game = room_game();
+        game.player.hp = 100_000;
+        game.player.max_hp = 100_000;
+        // Far too tough to dent, and healing from every bite.
+        let mut vampire = Monster::at_depth(
+            Kind::Vampire,
+            Point::new(3, 5),
+            Ai::Hunting {
+                last_seen: game.player.pos,
+            },
+            60,
+        );
+        vampire.energy = 0;
+        game.monsters.push(vampire);
+        for _ in 0..crate::game::SCRATCH_AFTER - 1 {
+            game.apply(Action::Move(Point::new(1, 0)));
+        }
+        assert_eq!(scratch_warnings(&game), 0, "too soon to tell");
+        for _ in 0..30 {
+            game.apply(Action::Move(Point::new(1, 0)));
+        }
+        assert_eq!(game.monsters[0].health_bar(), HEALTH_BAR_CELLS);
+        assert_eq!(scratch_warnings(&game), 1, "once per monster");
+    }
+
+    #[test]
+    fn a_fight_that_goes_somewhere_gets_no_warning() {
+        let mut game = room_game();
+        game.player.hp = 100_000;
+        game.player.max_hp = 100_000;
+        let mut ogre = hunter(&game, Kind::Ogre, Point::new(3, 5));
+        ogre.ai = Ai::Asleep;
+        game.monsters.push(ogre);
+        while !game.monsters.is_empty() {
+            game.apply(Action::Move(Point::new(1, 0)));
+        }
+        assert_eq!(scratch_warnings(&game), 0);
     }
 }

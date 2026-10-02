@@ -781,7 +781,34 @@ pub struct Monster {
     pub boost: i32,
     /// An item it stole, dropped when it dies.
     pub carrying: Option<Item>,
+    /// How the player's attacks on it are going, to warn when they
+    /// aren't hurting it.
+    pub wear: Wear,
 }
+
+/// The player's attacks on one monster, as its health bar shows them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Wear {
+    /// The lowest its health bar has been.
+    pub lowest_bar: i32,
+    /// Attacks since the bar last went lower.
+    pub attacks: u32,
+    /// The player has been told their attacks aren't hurting it.
+    pub warned: bool,
+}
+
+impl Default for Wear {
+    fn default() -> Self {
+        Self {
+            lowest_bar: HEALTH_BAR_CELLS,
+            attacks: 0,
+            warned: false,
+        }
+    }
+}
+
+/// Cells in a monster's health bar in the sidebar.
+pub const HEALTH_BAR_CELLS: i32 = 18;
 
 impl Monster {
     /// A monster with its base stats, as on depth 1. Tests use this to
@@ -805,6 +832,7 @@ impl Monster {
                 + loop_extra_floors(loops_done)
                 + deep_extra_floors(depth)) as i32,
             carrying: None,
+            wear: Wear::default(),
         };
         monster.hp = monster.max_hp();
         monster
@@ -814,6 +842,14 @@ impl Monster {
     pub fn max_hp(&self) -> i32 {
         let growth = (1.0 + HP_PERCENT_PER_FLOOR / 100.0).powi(self.boost);
         (self.species().max_hp as f64 * growth).round() as i32
+    }
+
+    /// Its health as the sidebar shows it: filled cells of the bar,
+    /// not the exact number, which the player never sees. Anything
+    /// alive shows at least one.
+    pub fn health_bar(&self) -> i32 {
+        let max = self.max_hp().max(1);
+        (self.hp.max(0) * HEALTH_BAR_CELLS + max - 1) / max
     }
 
     /// Experience for killing it, scaled by depth.

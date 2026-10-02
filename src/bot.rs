@@ -180,7 +180,7 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     }
 
     // Fight whatever is next to us, weakest-looking first.
-    if let Some(m) = adjacent.iter().min_by_key(|m| health_bar(m)) {
+    if let Some(m) = adjacent.iter().min_by_key(|m| m.health_bar()) {
         return Action::Move(m.pos - pos);
     }
     if let Some(action) = step_toward_monster(game, &hunting) {
@@ -499,13 +499,6 @@ impl Watch {
 }
 
 // ---- Seeing the world as a player would ------------------------------
-
-/// A monster's health as the sidebar shows it: a bar 18 cells wide,
-/// not the exact number, which the player never sees.
-fn health_bar(m: &Monster) -> i32 {
-    let max = m.max_hp().max(1);
-    (m.hp.max(0) * 18 + max - 1) / max
-}
 
 fn health_percent(game: &Game) -> i32 {
     game.player.hp * 100 / game.player.max_hp.max(1)

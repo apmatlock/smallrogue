@@ -32,6 +32,9 @@ pub const IDENTIFY_TURNS: u32 = 300;
 /// Points of health percent above a warning's line that health must
 /// climb back to before that warning can be given again.
 const HEALTH_WARNING_MARGIN: i32 = 15;
+/// Attacks in a row that leave a monster's health bar no lower than
+/// it has been before the player is told they're barely scratching it.
+pub const SCRATCH_AFTER: u32 = 8;
 
 /// What kind of news a log message is, so the screen can color it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -583,12 +586,36 @@ impl Game {
                 }
             }
         }
+        self.note_wear(i);
         // Being attacked alerts a monster, but a thief with loot keeps
         // running.
         if self.monsters[i].carrying.is_none() {
             self.monsters[i].ai = Ai::Hunting {
                 last_seen: self.player.pos,
             };
+        }
+    }
+
+    /// After an attack on monster `i`, warns once if a run of attacks
+    /// hasn't brought its health bar any lower: it heals as fast as
+    /// it's hurt, or it's too tough to hurt at all, and it's time to
+    /// think about leaving.
+    fn note_wear(&mut self, i: usize) {
+        let m = &mut self.monsters[i];
+        let bar = m.health_bar();
+        if bar < m.wear.lowest_bar {
+            m.wear.lowest_bar = bar;
+            m.wear.attacks = 0;
+            return;
+        }
+        m.wear.attacks += 1;
+        if m.wear.attacks >= SCRATCH_AFTER && !m.wear.warned {
+            m.wear.warned = true;
+            let name = m.name();
+            self.log_as(
+                &format!("Your blows barely scratch the {name}."),
+                MsgKind::Bad,
+            );
         }
     }
 
