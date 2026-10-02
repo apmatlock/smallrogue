@@ -546,7 +546,7 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
         // Only the walking is automatic: taking the stairs is the
         // player's choice.
         source = match command {
-            Command::Explore => Source::Auto,
+            Command::Explore | Command::Rest => Source::Auto,
             Command::Descend if will_travel(&game) => Source::Auto,
             _ => Source::You,
         };
@@ -570,10 +570,11 @@ fn play(terminal: &mut Terminal, seed: u64, start_with_bot: bool, record: bool) 
             }
             Command::Descend => descend_or_travel(terminal, &mut game, &mut log)?,
             Command::Explore => {
-                if auto_move(terminal, &mut game, &mut log, bot::explore_step)? {
+                if auto_move(terminal, &mut game, &mut log, bot::explore_step, WALK_PAUSE)? {
                     game.log("There is nothing left to explore here.");
                 }
             }
+            Command::Rest => rest(terminal, &mut game, &mut log)?,
             Command::ToggleBot => start_bot(&mut game, &mut autoplay),
             Command::ToggleAutoPickup => toggle_auto_pickup(&mut game),
             Command::Redraw => {}
@@ -607,7 +608,13 @@ fn start_bot(game: &mut Game, autoplay: &mut Option<Autoplay>) {
     game.log("The bot takes over. Space pauses, + and - set speed, Esc or B stops it.");
 }
 
-/// Repeats automatic steps (exploring, or walking to the stairs) until
+/// Between steps of exploring or walking to the stairs.
+const WALK_PAUSE: Duration = Duration::from_millis(12);
+/// Between turns of resting: nothing moves, and a long rest at high
+/// level can run to a couple of thousand turns.
+const REST_PAUSE: Duration = Duration::from_millis(1);
+
+/// Repeats automatic steps (exploring, walking to the stairs or resting) until
 /// there are none left, something happens that needs the player, or a
 /// key is pressed. Returns true if it ran out of steps normally.
 fn auto_move(
@@ -615,6 +622,7 @@ fn auto_move(
     game: &mut Game,
     log: &mut RunLog,
     step: fn(&Game) -> Option<Action>,
+    pause: Duration,
 ) -> io::Result<bool> {
     if let Some(reason) = bot::auto_blocked(game) {
         game.log(&reason);
@@ -636,11 +644,23 @@ fn auto_move(
         }
         draw(terminal, game)?;
         // A short pause makes the walk visible, and any key stops it.
-        if input::poll_key(Duration::from_millis(12))? != Polled::Nothing {
+        if input::poll_key(pause)? != Polled::Nothing {
             return Ok(false);
         }
     }
     Ok(false)
+}
+
+/// `R`: waits until healed, stopping early like exploring does.
+fn rest(terminal: &mut Terminal, game: &mut Game, log: &mut RunLog) -> io::Result<()> {
+    if let Some(reason) = bot::rest_blocked(game) {
+        game.log(&reason);
+        return Ok(());
+    }
+    if auto_move(terminal, game, log, bot::rest_step, REST_PAUSE)? {
+        game.log("You feel rested.");
+    }
+    Ok(())
 }
 
 /// `>`: descend when on the stairs; otherwise walk to them if seen.
@@ -660,7 +680,7 @@ fn descend_or_travel(terminal: &mut Terminal, game: &mut Game, log: &mut RunLog)
         game.apply(Action::Descend);
         return Ok(());
     }
-    if auto_move(terminal, game, log, bot::stairs_step)? {
+    if auto_move(terminal, game, log, bot::stairs_step, WALK_PAUSE)? {
         if game.map.tile(game.player.pos) == map::Tile::StairsDown {
             game.log("You reach the stairs. Press > again to descend.");
         } else {

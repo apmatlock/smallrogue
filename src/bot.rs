@@ -415,6 +415,23 @@ pub fn stairs_step(game: &Game) -> Option<Action> {
     })
 }
 
+/// One turn of resting until healed: wait, or `None` at full health.
+pub fn rest_step(game: &Game) -> Option<Action> {
+    (game.player.hp < game.player.max_hp).then_some(Action::Wait)
+}
+
+/// Why resting shouldn't start, if there is a reason: the same as for
+/// exploring, plus already being healed or too hungry to heal.
+pub fn rest_blocked(game: &Game) -> Option<String> {
+    if game.player.hp >= game.player.max_hp {
+        return Some("You are already at full health.".to_string());
+    }
+    if game.player.hunger() >= Hunger::Weak {
+        return Some("You are too hungry to heal by resting. Eat first.".to_string());
+    }
+    auto_blocked(game)
+}
+
 /// Why auto-explore or travel shouldn't start, if there is a reason.
 pub fn auto_blocked(game: &Game) -> Option<String> {
     let m = visible_monsters(game)
@@ -427,6 +444,7 @@ pub fn auto_blocked(game: &Game) -> Option<String> {
 /// that should hand control back to the player.
 pub struct Watch {
     hp: i32,
+    hunger: Hunger,
     pack: u32,
     /// Where visible monsters stood. Positions rather than a count, so a
     /// new monster appearing as another disappears is still noticed.
@@ -437,6 +455,7 @@ impl Watch {
     pub fn new(game: &Game) -> Self {
         Self {
             hp: game.player.hp,
+            hunger: game.player.hunger(),
             pack: game.player.inventory.iter().map(|i| i.count).sum(),
             monsters_seen: visible_monsters(game).iter().map(|m| m.pos).collect(),
         }
@@ -465,6 +484,11 @@ impl Watch {
         }
         if let Some(m) = visible.iter().find(|m| m.ai != Ai::Asleep) {
             return Some(format!("The {} is awake nearby.", m.name()));
+        }
+        // Getting hungrier: the game has logged it, and the player may
+        // want to eat.
+        if game.player.hunger() != self.hunger {
+            return Some(String::new());
         }
         let pack: u32 = game.player.inventory.iter().map(|i| i.count).sum();
         if pack != self.pack {
@@ -1382,5 +1406,48 @@ mod tests {
                 "seed {seed}: never left floor 1"
             );
         }
+    }
+
+    #[test]
+    fn resting_waits_until_healed() {
+        let mut game = quiet_room();
+        game.player.hp = game.player.max_hp / 2;
+        assert_eq!(rest_blocked(&game), None);
+        let mut turns = 0;
+        while let Some(action) = rest_step(&game) {
+            assert_eq!(action, Action::Wait);
+            let watch = Watch::new(&game);
+            game.apply(action);
+            assert_eq!(watch.reason_to_stop(&game), None);
+            turns += 1;
+            assert!(turns < 2_000, "never healed");
+        }
+        assert_eq!(game.player.hp, game.player.max_hp);
+        assert!(rest_blocked(&game).is_some(), "already at full health");
+    }
+
+    #[test]
+    fn resting_waits_for_no_hunter_or_hunger() {
+        use crate::monster::Kind;
+        let mut game = quiet_room();
+        game.player.hp = game.player.max_hp / 2;
+        game.player.food = crate::player::WEAK_AT;
+        assert!(rest_blocked(&game).unwrap().contains("hungry"));
+        game.player.food = crate::player::FOOD_START;
+        let orc = hunter_at(&game, Kind::Orc, Point::new(1, 5));
+        game.monsters.push(orc);
+        game.update_fov();
+        assert!(rest_blocked(&game).unwrap().contains("orc"));
+    }
+
+    #[test]
+    fn getting_hungrier_stops_automatic_steps() {
+        let mut game = quiet_room();
+        game.player.hp = game.player.max_hp / 2;
+        game.player.food = crate::player::HUNGRY_AT + 1;
+        let watch = Watch::new(&game);
+        game.apply(Action::Wait);
+        assert_eq!(game.player.hunger(), Hunger::Hungry);
+        assert_eq!(watch.reason_to_stop(&game), Some(String::new()));
     }
 }

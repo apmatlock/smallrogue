@@ -373,6 +373,7 @@ pub fn help_lines() -> Vec<Line> {
             ".                wait a turn (rest)",
             ">                descend, or walk to seen stairs",
             "x                explore until something happens",
+            "R                rest until healed",
             "c                close a door",
             "g                pick up (walking over also works)",
             "@                auto pickup on or off",

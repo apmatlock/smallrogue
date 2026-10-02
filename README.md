@@ -79,6 +79,7 @@ This plays seeds 1 to 200, printing a line as each run finishes, then the averag
 | `.` | Wait one turn (rest) |
 | `>` | Descend while standing on stairs; otherwise walk to stairs you have seen |
 | `x` | Explore: walk to unexplored areas and pick up items until something happens (with auto pickup off, it leaves items alone) |
+| `R` | Rest until healed, unless something happens first |
 | `c` | Close an adjacent open door; choose a direction if several are nearby |
 | `g` or `,` | Pick up an item (walking over an item also picks it up) |
 | `@` | Auto pickup on or off; the choice is saved for later runs |
@@ -97,7 +98,7 @@ This plays seeds 1 to 200, printing a line as each run finishes, then the averag
 
 In lists that don't fit on screen, press space or `>` for the next page and `<` for the previous one. Escape closes any list.
 
-Exploring and walking to the stairs stop as soon as a monster comes into view, you get hurt, or you pick something up. Any key stops them early.
+Exploring, walking to the stairs and resting stop as soon as a monster comes into view, you get hurt, you pick something up or you get hungrier. Any key stops them early. Resting won't start with a monster awake in view, or when you're too hungry to heal.
 
 Moving, attacking, waiting, opening or closing a door, descending, and using an item each take a turn. Failed actions, such as walking into a wall, do not.
 

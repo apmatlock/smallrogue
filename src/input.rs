@@ -33,6 +33,8 @@ pub enum Command {
     Descend,
     /// Auto-explore until something needs attention.
     Explore,
+    /// Wait until healed, unless something needs attention first.
+    Rest,
     /// Hand the game to the bot, or take it back.
     ToggleBot,
     /// Turn picking up by walking over items on or off.
@@ -173,6 +175,7 @@ fn map_key(key: KeyEvent) -> Option<Command> {
         KeyCode::Char('.') => Some(Command::Act(Action::Wait)),
         KeyCode::Char('>') => Some(Command::Descend),
         KeyCode::Char('x') => Some(Command::Explore),
+        KeyCode::Char('R') => Some(Command::Rest),
         KeyCode::Char('B') => Some(Command::ToggleBot),
         KeyCode::Char('@') => Some(Command::ToggleAutoPickup),
         KeyCode::Char('c') => Some(Command::Close),
@@ -231,6 +234,7 @@ mod tests {
         assert!(matches!(plain('m'), Some(Command::History)));
         assert!(matches!(plain('l'), Some(Command::Act(_))), "l still moves");
         assert!(matches!(plain('@'), Some(Command::ToggleAutoPickup)));
+        assert!(matches!(plain('R'), Some(Command::Rest)));
     }
 
     #[test]
