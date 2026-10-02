@@ -58,6 +58,18 @@ pub fn loop_extra_floors(loops_done: u32) -> u32 {
     LOOP_EXTRA_FLOORS * loops_done + LOOP_GROWTH * loops_done * loops_done.saturating_sub(1) / 2
 }
 
+/// Past this depth, each floor deeper adds `DEEP_EXTRA_PER_FLOOR` more
+/// floors of strength. Without it, runs that got through loop 2's
+/// crypts (19-24) rarely died before loop 3: the rest of loop 2 was a
+/// plateau.
+pub const DEEP_RAMP_FROM: u32 = 24;
+pub const DEEP_EXTRA_PER_FLOOR: u32 = 1;
+
+/// The extra floors of strength from the deep ramp at this depth.
+pub fn deep_extra_floors(depth: u32) -> u32 {
+    depth.saturating_sub(DEEP_RAMP_FROM) * DEEP_EXTRA_PER_FLOOR
+}
+
 /// Extra experience per floor, in percent of the base. Not compounding,
 /// so the character can't simply outgrow the dungeon.
 pub const XP_PERCENT_PER_FLOOR: i32 = 8;
@@ -789,7 +801,9 @@ impl Monster {
             energy: 0,
             ai,
             hp: 0,
-            boost: (depth.saturating_sub(1) + loop_extra_floors(loops_done)) as i32,
+            boost: (depth.saturating_sub(1)
+                + loop_extra_floors(loops_done)
+                + deep_extra_floors(depth)) as i32,
             carrying: None,
         };
         monster.hp = monster.max_hp();
@@ -985,6 +999,19 @@ mod tests {
         assert_eq!(
             orc(last_floor + 1).boost,
             (last_floor + LOOP_EXTRA_FLOORS) as i32
+        );
+    }
+
+    #[test]
+    fn the_deep_ramp_starts_after_the_second_crypts() {
+        let boost = |depth| Monster::at_depth(Kind::Orc, Point::default(), Ai::Asleep, depth).boost;
+        let loop_2 = loop_extra_floors(1) as i32;
+        assert_eq!(boost(DEEP_RAMP_FROM), DEEP_RAMP_FROM as i32 - 1 + loop_2);
+        // Each floor past the start is a step of depth plus a step of ramp.
+        let past = DEEP_RAMP_FROM + 5;
+        assert_eq!(
+            boost(past),
+            past as i32 - 1 + loop_2 + 5 * DEEP_EXTRA_PER_FLOOR as i32
         );
     }
 

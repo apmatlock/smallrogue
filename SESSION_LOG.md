@@ -13,11 +13,12 @@ Last commit: `58f4b57`. Everything is pushed to GitHub. 213 tests pass; clippy (
 - From the user's first 10 recordings: hints for low health (naming known healing), more protective armor and unknown rings, and a death-screen line counting unused healing potions. The 10-20 minute target holds at the user's pace (13.5 s per 100 turns).
 - README brought up to date.
 - Growing loop scaling (`LOOP_GROWTH = 4` in `src/monster.rs`), from a 1,000-run batch on seeds 2001-3000: turn-limit runs 200 to 89, median 22.
+- The user's two newest recordings, with the hints: depth 11 (healing used up before dying) and depth 32 (quit at full health, carrying 15 healing potions by depth 11, more than any bot run). Bot runs that reached depth 20 went on to the 30s, so the deep ramp (`DEEP_RAMP_FROM = 24`, `DEEP_EXTRA_PER_FLOOR = 1` in `src/monster.rs`) now makes each floor past 24 one floor stronger: on fresh seeds, deaths spread over 25-36 and runs past 36 fell from 78 to 11 of 200.
 
 **Next:**
 1. v1 wrap-up: mark milestone 12 done in DESIGN.md.
-2. When the user has played more runs with the hints, `smallrogue --analyze` to see whether healing and gear use changed. Rule changes past depth 36 don't affect their recordings so far (none went past depth 9).
-3. Open balance notes, not urgent: vampires, wraiths and demons cause about 40% of deaths, mostly in the second and third crypts; the bot's median (22) is a little above the 15-20 target, though the user's own runs end much earlier.
+2. More recorded runs, then `smallrogue --analyze`. The deep ramp changes the rules past depth 24, so the depth-32 recording no longer replays exactly; its pace lines still count.
+3. Open balance notes, not urgent: wraiths, vampires and demons cause about 40% of deaths; the bot's median (21) is a little above the 15-20 target, and getting it lower would mean a harder first loop.
 
 Tools for measuring: `target/big_report.py CSV...` breaks a batch down by zone, killer and estimated run length (untracked); `target/simwatch.py LOG BASELINE.csv TOTAL` (or `-` for no baseline) gives a live view; run sims as copied binaries in parallel and `wait` on their PIDs, never `pgrep -f`.
 
@@ -98,10 +99,10 @@ Measured with the bot, which plays like a careful beginner. Target set by the us
 
 | Measure | Value |
 |---|---|
-| Median final depth | 22 (1,000 fresh seeds, 2001-3000) |
-| Average final depth | 25.7 |
-| Deaths | 911 of 1,000 (89 hit the turn limit) |
-| Top killers | vampires (15%), wraiths (14%), demons (11%), mostly in the second and third crypts |
+| Median final depth | 21 (200 fresh seeds, 1001-1200) |
+| Average final depth | 21.7 |
+| Deaths | 196 of 200 (4 hit the turn limit); 11 runs past depth 36, best 38 |
+| Top killers | wraiths (14%), vampires (13%), demons (11%) |
 
 The tuning knobs are constants at the top of `src/monster.rs` (scaling, loop scaling, home weight, alertness, monster count), `src/zone.rs` (zone floors, homes, item weights, themes), `src/themed.rs` and `src/abilities.rs` (acid, jelly cap, drain floor). Food supply is in `src/item.rs`.
 

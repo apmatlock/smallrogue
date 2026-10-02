@@ -247,6 +247,8 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 - A 1,000-run batch on fresh seeds 2001-3000 showed a split: runs either ended by the second crypts or outgrew the dungeon, with 20% surviving to the turn limit around depths 40-55. Loop scaling now grows: loop 2 keeps +3 floors, and each later loop adds `LOOP_GROWTH` (4) more than the one before (+10 in loop 3, +21 in loop 4). Over the same 1,000 seeds, runs ending by depth 36 are identical; turn-limit runs fell from 200 to 89, the best depth from 55 to 46, and the median stayed at 22. A growth of 8 made the third crypts a wall (nobody past depth 41) and was not kept.
 
+- The user's 12th recorded run reached depth 32 comfortably, and the batch showed why: runs that got through loop 2's crypts almost never died in floors 25-36 (23 of 500), then piled up at loop 3 (182 ended at 37-42). A deep ramp now adds `DEEP_EXTRA_PER_FLOOR` (1) more floor of strength for each floor past `DEEP_RAMP_FROM` (24). On fresh seeds 1001-1200, runs ending by depth 24 are identical; the average fell from 24.7 to 21.7 and the median stayed at 21; deaths at 25-36 rose from 5 to 72, runs past 36 fell from 78 to 11 (best depth 45 to 38), and turn-limit runs from 9 to 4. Seeds 1-100 agree. A ramp of 0.5 left 29 of 100 runs past 36, 1.5 stopped everyone by 35, and starting at depth 20 piled deaths into the second crypts. The median can't reach 15-20 from here: most runs pass depth 21 before the ramp starts.
+
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
 
 ## Later, after v1
