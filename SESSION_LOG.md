@@ -2,7 +2,22 @@
 
 Where the project stands, so work can pick up where it left off. The design decisions and milestone plan live in [DESIGN.md](DESIGN.md); this file is the running status.
 
-## Where we left off — 2026-10-01
+## Where we left off — 2026-10-02
+
+Last commit: gear comparison (4170c72). Everything is pushed to GitHub. 224 tests pass (2 more ignored); clippy and rustfmt are clean; Codex reviews were clean on every commit.
+
+**First post-v1 session.** Built:
+- Auto pickup toggle: `@` turns it on or off, saved in `settings.txt` next to the high scores (`src/settings.rs`). It's an action (`autopickup on|off` in recordings), so replays stay exact. With it off, walking onto an item names it and `g` picks it up; auto-explore leaves items alone; the bot always collects.
+- A whole-codebase Codex review of v1 (read-only `codex exec`), with every bug claim checked against the code. Fixed: a resize in a menu counted as cancel and wasted an unknown scroll at its target prompt (menus now get `MenuKey::{Char, Cancel, Resize}`); auto-explore and travel steps are recorded as they happen (`RunLog` in `src/main.rs`); `--analyze` leaves runs with bot play out of the pace; recording names never collide (`-2`, `-3` suffixes).
+- Gear comparison: unequipped weapons and armor show what equipping them would change, in item menus (`e`, `i`) and the details box ("armor +2, dodge -1"). Worked out as the player knows things (`ui::gear_change`, `as_known`): unknown enchantments count as 0 and get a "?".
+- Recorded runs: the user's 9 newest (2026-10-01/02) reached depths 3-37, median 9, with best runs of 37 and 32. Compared with the first 10: healing left unused at death 9 of 9 down to 4 of 7, untried potions and scrolls 8 of 9 down to 1 of 7, same choice as the bot in fights 52% up to 64%. Pace 19.2 s per 100 turns (was 13.5), so the bot's median run would take about 19 minutes. One death by starvation at depth 8 (seed 488798273).
+
+**Next:**
+1. The first post-v1 milestone, recommended: one ranged enemy that warns a turn before it shoots, with bot support and a balance check (part of monster abilities step 4).
+2. The user is gathering more recorded runs; run `--analyze` on the new batch.
+3. Left from the Codex v1 review, not urgent: a stronger replay check (a rules id or state checkpoints; today only depth, turn, level and killer are compared); a cleanup guard so a failed start can't leave the terminal in raw mode; wrapping menu text on narrow screens. Other ideas it offered: poison with a cure, suspend and resume, a lure item, a treasure room that wakes guardians, and a shorter low-health warning naming the potion's letter.
+
+## Earlier — 2026-10-01
 
 Last commit: the v1 wrap-up. Everything is pushed to GitHub. 214 tests pass (2 more ignored); clippy (with `-D warnings`) and rustfmt are clean; Codex reviews were clean on every commit.
 
@@ -92,6 +107,7 @@ Smaller open items:
 | 10 | Monster abilities: regeneration, life drain, blood drinking, theft, acid, splitting, packs |
 | 11 | Themed zones: Crypts, Flooded Halls, Deep Warrens; themed rooms and shallow water; loops with extra scaling |
 | 12 | Polish and balance: help pages, look, message history, title screen, time played, recorded runs (`--replay`, `--analyze`), item hints, vampire tuning, growing loop scaling and the deep ramp |
+| Post-v1 | Auto pickup toggle (`@`), gear comparison, fixes from the Codex v1 review |
 | Extras | Bot, auto-explore (`x`), stair travel (`>`), watchable bot (`--bot`, `B`), headless balance runs (`--simulate N`); monsters scale with depth; 31 monster kinds; food bar; bot memory with Escape and Fetch |
 
 ## Balance, as of the last measurement
