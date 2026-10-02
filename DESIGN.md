@@ -108,7 +108,7 @@ Each milestone ends with something playable. Claude builds each one with clear, 
 | 9 | Hunger and traps | Food clock and hidden traps ✅ |
 | 10 | Monster abilities | Monsters that change how you play: regenerating trolls, draining wraiths, a thief, a gear-wrecker, a splitter, packs ✅ |
 | 11 | Zones | Three themed zones, themed rooms, varying floor size, cycling with scaling. Zones choose which monster abilities appear where ✅ |
-| 12 | Polish and balance | Help screen, tuning so runs last 10–20 minutes (high scores done early) |
+| 12 | Polish and balance | Help pages, look, message history, title screen, time played, recorded runs with replay and analysis, item hints, and tuning so runs last 10–20 minutes (high scores done early) ✅ |
 
 ### Milestone 10 plan: monster abilities
 
@@ -250,6 +250,8 @@ Decided with the user: all five readability features; quit runs go on the high s
 - The user's 12th recorded run reached depth 32 comfortably, and the batch showed why: runs that got through loop 2's crypts almost never died in floors 25-36 (23 of 500), then piled up at loop 3 (182 ended at 37-42). A deep ramp now adds `DEEP_EXTRA_PER_FLOOR` (1) more floor of strength for each floor past `DEEP_RAMP_FROM` (24). On fresh seeds 1001-1200, runs ending by depth 24 are identical; the average fell from 24.7 to 21.7 and the median stayed at 21; deaths at 25-36 rose from 5 to 72, runs past 36 fell from 78 to 11 (best depth 45 to 38), and turn-limit runs from 9 to 4. Seeds 1-100 agree. A ramp of 0.5 left 29 of 100 runs past 36, 1.5 stopped everyone by 35, and starting at depth 20 piled deaths into the second crypts. The median can't reach 15-20 from here: most runs pass depth 21 before the ramp starts.
 
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
+
+**Where v1 ended (2026-10-01).** Against the Part B recheck: the bot's median on fresh seeds is 21, just above the 15-20 target; 4 of 200 runs reach the turn limit; and no monster leads by much, though wraiths (14%), vampires (13%) and demons (11%) are each a little over 10% of deaths. At the user's measured pace (13.5-18 seconds per 100 turns) the bot's median run takes 13-17 minutes, inside the 10-20 minute target. The user's own runs ended at depths 2-11, plus one at 32 once they used their healing. Left for later: a harder first loop if the median should come down, and the open items below.
 
 ## Later, after v1
 

@@ -4,9 +4,9 @@ Where the project stands, so work can pick up where it left off. The design deci
 
 ## Where we left off — 2026-10-01
 
-Last commit: `58f4b57`. Everything is pushed to GitHub. 213 tests pass; clippy (with `-D warnings`) and rustfmt are clean; Codex reviews were clean on every commit.
+Last commit: the v1 wrap-up. Everything is pushed to GitHub. 214 tests pass (2 more ignored); clippy (with `-D warnings`) and rustfmt are clean; Codex reviews were clean on every commit.
 
-**Milestone 12 (polish and balance) is nearly done.** Built this stretch:
+**Milestone 12 (polish and balance) is done, and with it v1.** Built this stretch:
 - Readability: help pages, look (`L`/`;`), message history (`m`), title screen, time played, quitting goes on the high scores.
 - Vampires at normal speed, healing half the blood they draw.
 - Run recording, on by default: `--replay FILE`, `--analyze [PATH]` (pace by zone, deaths, items left unused, how the player's moves compare with the bot's). Recordings are in `~/.local/share/smallrogue/recordings`.
@@ -16,7 +16,7 @@ Last commit: `58f4b57`. Everything is pushed to GitHub. 213 tests pass; clippy (
 - The user's two newest recordings, with the hints: depth 11 (healing used up before dying) and depth 32 (quit at full health, carrying 15 healing potions by depth 11, more than any bot run). Bot runs that reached depth 20 went on to the 30s, so the deep ramp (`DEEP_RAMP_FROM = 24`, `DEEP_EXTRA_PER_FLOOR = 1` in `src/monster.rs`) now makes each floor past 24 one floor stronger: on fresh seeds, deaths spread over 25-36 and runs past 36 fell from 78 to 11 of 200.
 
 **Next:**
-1. v1 wrap-up: mark milestone 12 done in DESIGN.md.
+1. Pick what comes after v1 with the user: the list is at the end of DESIGN.md (save on quit, more backgrounds and magic, species, more zones and monsters, a signature mechanic, tiles), plus monster abilities step 4 (ranged attacks, poison, paralysis).
 2. More recorded runs, then `smallrogue --analyze`. The deep ramp changes the rules past depth 24, so the depth-32 recording no longer replays exactly; its pace lines still count.
 3. Open balance notes, not urgent: wraiths, vampires and demons cause about 40% of deaths; the bot's median (21) is a little above the 15-20 target, and getting it lower would mean a harder first loop.
 
@@ -91,6 +91,7 @@ Smaller open items:
 | 0-9 | Setup, map, dungeon generation, field of view, monsters and turns, combat, items, identification, growth (levels and skills), hunger and traps |
 | 10 | Monster abilities: regeneration, life drain, blood drinking, theft, acid, splitting, packs |
 | 11 | Themed zones: Crypts, Flooded Halls, Deep Warrens; themed rooms and shallow water; loops with extra scaling |
+| 12 | Polish and balance: help pages, look, message history, title screen, time played, recorded runs (`--replay`, `--analyze`), item hints, vampire tuning, growing loop scaling and the deep ramp |
 | Extras | Bot, auto-explore (`x`), stair travel (`>`), watchable bot (`--bot`, `B`), headless balance runs (`--simulate N`); monsters scale with depth; 31 monster kinds; food bar; bot memory with Escape and Fetch |
 
 ## Balance, as of the last measurement
