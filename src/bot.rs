@@ -8,11 +8,11 @@
 //! plays on its own (on screen or headless for balance testing).
 
 use crate::game::{Action, Game};
-use crate::geom::Point;
+use crate::geom::{DIRECTIONS_8, Point};
 use crate::inventory::HEALING;
 use crate::item::{FoodKind, Item, ItemKind, PotionKind, ScrollKind};
 use crate::map::Tile;
-use crate::monster::{Ai, Monster};
+use crate::monster::{Ability, Ai, Monster};
 use crate::path;
 use crate::player::{Hunger, PACK_SIZE, RING_SLOTS};
 
@@ -22,6 +22,22 @@ const REST_BELOW: i32 = 80;
 const REST_NEAR_SLEEPERS: i32 = 90;
 /// Drink known healing at or below this percent when in danger.
 const HEAL_BELOW: i32 = 40;
+
+/// From this depth on, monsters hit hard enough that the bot rests to
+/// full before moving on, as a player with `R` does. On 1,000 seeds
+/// this took the median depth from 22 to 28. Drinking healing earlier
+/// too (at 55%) made no difference.
+const DEEP_FROM: u32 = 13;
+
+/// Health percent to rest up to before moving on, deeper floors asking
+/// for more.
+fn rest_below(game: &Game) -> i32 {
+    if game.depth >= DEEP_FROM {
+        100
+    } else {
+        REST_BELOW
+    }
+}
 /// Only try unknown potions when at least this healthy.
 const EXPERIMENT_ABOVE: i32 = 70;
 
@@ -34,6 +50,12 @@ const ESCAPE_BELOW: i32 = 50;
 /// How far, in steps, the bot will go out of its way for an item it
 /// has seen before taking the stairs.
 const FETCH_REACH: usize = 15;
+
+/// How far the bot will back off to a corridor to fight a splitter.
+const HOLD_REACH: usize = 8;
+/// Turns a hold may last, so it can't wait forever on a jelly that
+/// never comes.
+const HOLD_BUDGET: u16 = 60;
 
 /// Everything the bot remembers between turns: at most one plan.
 ///
@@ -50,6 +72,10 @@ pub struct BotMemory {
     /// Items this floor the bot set out to fetch and didn't get to, so
     /// it doesn't keep setting out for them.
     gave_up_on: Vec<Point>,
+    /// A hold has been tried on this floor. Only one is allowed: a
+    /// jelly that drops in and out of view would otherwise start and
+    /// end holds forever, the bot stepping back and forth between them.
+    held: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +91,9 @@ enum Purpose {
     Escape,
     /// Go and pick up an item already seen, before heading down.
     Fetch,
+    /// Back into a corridor and fight a splitter there, where its
+    /// halves can only come at the player one or two at a time.
+    Hold,
 }
 
 /// The bot's next move. Always returns something; waiting is the
@@ -168,12 +197,19 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
         return Action::Descend;
     }
 
-    // Follow through on an escape, or decide to start one. A fetch is
-    // only a detour, so an escape can cut it short.
-    if memory.plan.is_none_or(|p| p.purpose == Purpose::Fetch)
+    // Follow through on an escape, or decide to start one. A fetch or a
+    // hold is only a detour, so an escape can cut it short.
+    if memory.plan.is_none_or(|p| p.purpose != Purpose::Escape)
         && let Some(escape) = consider_escape(game, &hunting, hp)
     {
         memory.plan = Some(escape);
+    }
+    if memory.plan.is_none_or(|p| p.purpose == Purpose::Fetch)
+        && !memory.held
+        && let Some(hold) = consider_hold(game, &hunting)
+    {
+        memory.plan = Some(hold);
+        memory.held = true;
     }
     if let Some(action) = follow_plan(game, memory) {
         return action;
@@ -201,7 +237,7 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     }
     // Resting burns food, so only rest with food to spare.
     let can_rest = game.player.hunger() == Hunger::Fed || has_food(game);
-    if hp < REST_BELOW && can_rest {
+    if hp < rest_below(game) && can_rest {
         return Action::Wait;
     }
     // Sleeping monsters are left alone: walking up to one can hide it
@@ -209,7 +245,7 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     // then step back and forth forever. Rest up in case it wakes.
     // (Moving on instead, to avoid giving sleepers more chances to wake,
     // measured worse: median depth 15 to 14 on the same 100 seeds.)
-    if !asleep.is_empty() && hp < REST_NEAR_SLEEPERS && can_rest {
+    if !asleep.is_empty() && hp < REST_NEAR_SLEEPERS.max(rest_below(game)) && can_rest {
         return Action::Wait;
     }
     // Descending comes before exploring: once the stairs are known and
@@ -267,6 +303,47 @@ fn consider_escape(game: &Game, hunting: &[&Monster], hp: i32) -> Option<Plan> {
         purpose: Purpose::Escape,
         goal,
         turns_left: ESCAPE_BUDGET,
+    })
+}
+
+/// Whether a splitter is hunting the player: a pink jelly, whose every
+/// hit that doesn't kill makes another.
+fn splitter_hunting(hunting: &[&Monster]) -> bool {
+    hunting.iter().any(|m| m.species().has(Ability::Splits))
+}
+
+/// A corridor tile: at most two of its neighbors are open, so at most
+/// two monsters can reach whoever stands there. Unexplored neighbors
+/// count as open, since they might be.
+fn is_chokepoint(game: &Game, p: Point) -> bool {
+    let open = DIRECTIONS_8
+        .iter()
+        .map(|&d| p + d)
+        .filter(|&n| !game.map.is_revealed(n) || game.map.tile(n).is_walkable())
+        .count();
+    open <= 2
+}
+
+/// Decides whether to back into a corridor: a splitter is hunting, the
+/// player is out in the open, and a corridor is within `HOLD_REACH`.
+/// Measured on its own, a hold for groups of any kind was a wash; a
+/// jelly is different, since in a room it can surround the player with
+/// its own halves.
+fn consider_hold(game: &Game, hunting: &[&Monster]) -> Option<Plan> {
+    let pos = game.player.pos;
+    if !splitter_hunting(hunting) || is_chokepoint(game, pos) {
+        return None;
+    }
+    let map = &game.map;
+    let (goal, _) = path::distances(pos, map.width(), map.height(), HOLD_REACH, |p| {
+        known_walkable(game, p) && !game.known_trap_at(p)
+    })
+    .into_iter()
+    .find(|&(p, _)| map.tile(p).is_walkable() && is_chokepoint(game, p))?;
+    Some(Plan {
+        purpose: Purpose::Hold,
+        goal,
+        turns_left: HOLD_BUDGET,
     })
 }
 
@@ -330,7 +407,7 @@ fn follow_plan(game: &Game, memory: &mut BotMemory) -> Option<Action> {
             let fight = visible_monsters(game)
                 .iter()
                 .any(|m| matches!(m.ai, Ai::Hunting { .. }) || m.pos.is_adjacent(pos));
-            if fight || health_percent(game) < REST_BELOW {
+            if fight || health_percent(game) < rest_below(game) {
                 return None;
             }
             let goal = plan.goal;
@@ -347,6 +424,33 @@ fn follow_plan(game: &Game, memory: &mut BotMemory) -> Option<Action> {
                 give_up(memory);
             }
             step
+        }
+        Purpose::Hold => {
+            let pos = game.player.pos;
+            let visible = visible_monsters(game);
+            let hunting: Vec<&Monster> = visible
+                .iter()
+                .copied()
+                .filter(|m| matches!(m.ai, Ai::Hunting { .. }))
+                .collect();
+            if !splitter_hunting(&hunting) {
+                memory.plan = None;
+                return None;
+            }
+            if pos != plan.goal {
+                let goal = plan.goal;
+                let step = step_to(game, |p| p == goal);
+                if step.is_none() {
+                    memory.plan = None;
+                }
+                return step;
+            }
+            // In place: fight what comes, and let the rest come to us.
+            if visible.iter().any(|m| m.pos.is_adjacent(pos)) {
+                None
+            } else {
+                Some(Action::Wait)
+            }
         }
     }
 }
@@ -1490,6 +1594,96 @@ mod tests {
         game.monsters.clear();
         game.apply(Action::Equip(letter));
         assert_eq!(next_action(&game, &mut memory), Action::Equip(axe_letter));
+    }
+
+    /// A 9x5 room joined at (10,3) to a corridor running east, with
+    /// everything seen.
+    fn room_and_corridor() -> Game {
+        let mut game = Game::new(1);
+        let mut map = crate::map::Map::new_filled(24, 7);
+        map.carve_room(1, 1, 9, 5);
+        for x in 10..22 {
+            map.set_tile(Point::new(x, 3), Tile::Floor);
+        }
+        game.place_on_map(map, Point::new(7, 3));
+        game.monsters.clear();
+        game.items.clear();
+        game.traps.clear();
+        for p in game.map.points().collect::<Vec<_>>() {
+            game.map.reveal(p);
+        }
+        game.update_fov();
+        game
+    }
+
+    #[test]
+    fn it_backs_into_a_corridor_to_fight_a_jelly() {
+        use crate::monster::Kind;
+        let mut game = room_and_corridor();
+        let jelly = hunter_at(&game, Kind::PinkJelly, Point::new(3, 3));
+        game.monsters.push(jelly);
+        game.update_fov();
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(1, 0)),
+            "away from the jelly, toward the corridor"
+        );
+        assert_eq!(memory.plan.map(|p| p.goal), Some(Point::new(11, 3)));
+
+        // In the corridor, it waits for the jelly rather than going
+        // back out to meet it, then fights it when it arrives.
+        game.player.pos = Point::new(11, 3);
+        game.monsters[0].pos = Point::new(6, 3);
+        game.update_fov();
+        assert_eq!(next_action(&game, &mut memory), Action::Wait);
+        game.monsters[0].pos = Point::new(10, 3);
+        game.update_fov();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(-1, 0))
+        );
+    }
+
+    #[test]
+    fn only_one_hold_a_floor() {
+        use crate::monster::Kind;
+        let mut game = room_and_corridor();
+        let jelly = hunter_at(&game, Kind::PinkJelly, Point::new(3, 3));
+        game.monsters.push(jelly);
+        game.update_fov();
+        let mut memory = BotMemory::default();
+        next_action(&game, &mut memory);
+        assert!(memory.plan.is_some_and(|p| p.purpose == Purpose::Hold));
+
+        // The jelly drops out of view and the hold ends; when it's back,
+        // the bot meets it instead of starting another hold.
+        let jelly = game.monsters.pop().unwrap();
+        game.update_fov();
+        next_action(&game, &mut memory);
+        assert!(memory.plan.is_none());
+        game.monsters.push(jelly);
+        game.update_fov();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(-1, 0))
+        );
+        assert!(memory.plan.is_none());
+    }
+
+    #[test]
+    fn other_monsters_are_met_in_the_open() {
+        use crate::monster::Kind;
+        let mut game = room_and_corridor();
+        let orc = hunter_at(&game, Kind::Orc, Point::new(3, 3));
+        game.monsters.push(orc);
+        game.update_fov();
+        let mut memory = BotMemory::default();
+        assert_eq!(
+            next_action(&game, &mut memory),
+            Action::Move(Point::new(-1, 0))
+        );
+        assert!(memory.plan.is_none());
     }
 
     #[test]
