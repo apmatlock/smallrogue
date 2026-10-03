@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use crate::bot;
 use crate::game::Game;
+use crate::item::{self, ItemKind, WeaponKind};
 
 /// A run stops here if the bot is still alive, so a run can't go on
 /// forever.
@@ -44,6 +45,43 @@ pub struct RunResult {
     pub ending: Ending,
     /// What killed the bot, e.g. "a jackal". Empty unless it died.
     pub killer: String,
+    /// The artifacts lying on floors the bot reached.
+    pub offered: Vec<WeaponKind>,
+    /// The artifacts it picked up.
+    pub found: Vec<WeaponKind>,
+    /// Monsters killed with an artifact made to slay them.
+    pub slayer_kills: u32,
+}
+
+/// The artifact the player is wielding, if any.
+fn wielded_artifact(game: &Game) -> Option<WeaponKind> {
+    match game.player.weapon()?.kind {
+        ItemKind::Weapon(w) if w.is_artifact() => Some(w),
+        _ => None,
+    }
+}
+
+/// How many monsters of an artifact's prey the player has killed.
+fn prey_killed(game: &Game, artifact: WeaponKind) -> u32 {
+    let prey = artifact.slaying().map_or(&[][..], |s| s.prey);
+    prey.iter()
+        .map(|kind| {
+            game.stats
+                .kills
+                .get(kind.species().name)
+                .copied()
+                .unwrap_or(0)
+        })
+        .sum()
+}
+
+/// Adds any artifacts in `kinds` not already in `list`.
+fn note(list: &mut Vec<WeaponKind>, kinds: impl IntoIterator<Item = WeaponKind>) {
+    for kind in kinds {
+        if !list.contains(&kind) {
+            list.push(kind);
+        }
+    }
 }
 
 /// Plays one run with the bot, until it dies or reaches `max_turns`.
@@ -52,6 +90,7 @@ pub fn play(seed: u64, max_turns: u64) -> RunResult {
     let mut memory = bot::BotMemory::default();
     let mut idle = 0;
     let (mut depth, mut depth_turn) = (game.depth, game.turn);
+    let (mut offered, mut found, mut slayer_kills) = (Vec::new(), Vec::new(), 0);
     let ending = loop {
         if game.death.is_some() {
             break Ending::Died;
@@ -60,13 +99,26 @@ pub fn play(seed: u64, max_turns: u64) -> RunResult {
             break Ending::TurnLimit;
         }
         let turn = game.turn;
+        let wielded = wielded_artifact(&game);
+        let before = wielded.map(|w| prey_killed(&game, w));
         game.apply(bot::next_action(&game, &mut memory));
+        if let (Some(w), Some(before)) = (wielded, before) {
+            slayer_kills += prey_killed(&game, w) - before;
+        }
+        note(
+            &mut found,
+            game.player.inventory.iter().filter_map(|i| match i.kind {
+                ItemKind::Weapon(w) if w.is_artifact() => Some(w),
+                _ => None,
+            }),
+        );
         idle = if game.turn == turn { idle + 1 } else { 0 };
         if idle >= STUCK_AFTER {
             break Ending::Stuck;
         }
         if game.depth != depth {
             (depth, depth_turn) = (game.depth, game.turn);
+            note(&mut offered, item::artifacts_on_floor(seed, depth));
         } else if game.turn - depth_turn >= STALLED_AFTER {
             break Ending::Stalled;
         }
@@ -78,7 +130,19 @@ pub fn play(seed: u64, max_turns: u64) -> RunResult {
         level: game.player.level,
         ending,
         killer: game.death.clone().unwrap_or_default(),
+        offered,
+        found,
+        slayer_kills,
     }
+}
+
+/// Artifact names for the CSV, joined with "+".
+fn names(kinds: &[WeaponKind]) -> String {
+    kinds
+        .iter()
+        .map(|k| format!("{k:?}"))
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 /// Plays `runs` games from `first_seed` on, prints a summary, and saves
@@ -120,7 +184,7 @@ pub fn run_line(r: &RunResult) -> String {
 }
 
 pub fn to_csv(results: &[RunResult]) -> String {
-    let mut csv = String::from("seed,depth,turns,level,ending,killer\n");
+    let mut csv = String::from("seed,depth,turns,level,ending,killer,offered,found,slayer_kills\n");
     for r in results {
         let ending = match r.ending {
             Ending::Died => "died",
@@ -133,8 +197,14 @@ pub fn to_csv(results: &[RunResult]) -> String {
         let killer = r.killer.replace('"', "\"\"");
         let _ = writeln!(
             csv,
-            "{},{},{},{},{ending},\"{killer}\"",
-            r.seed, r.depth, r.turns, r.level
+            "{},{},{},{},{ending},\"{killer}\",{},{},{}",
+            r.seed,
+            r.depth,
+            r.turns,
+            r.level,
+            names(&r.offered),
+            names(&r.found),
+            r.slayer_kills
         );
     }
     csv
@@ -204,6 +274,9 @@ mod tests {
             level: depth,
             ending,
             killer: killer.to_string(),
+            offered: vec![WeaponKind::Sunsteel],
+            found: vec![],
+            slayer_kills: 0,
         }
     }
 
@@ -224,7 +297,8 @@ mod tests {
         let csv = to_csv(&[result(7, 3, Ending::Died, "a goblin")]);
         assert_eq!(
             csv,
-            "seed,depth,turns,level,ending,killer\n7,3,300,3,died,\"a goblin\"\n"
+            "seed,depth,turns,level,ending,killer,offered,found,slayer_kills\n\
+             7,3,300,3,died,\"a goblin\",Sunsteel,,0\n"
         );
     }
 
