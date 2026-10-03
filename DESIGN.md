@@ -36,7 +36,7 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 | Identification | Potions, scrolls, rings and weapon/armor/ring enchantments start unknown. Wands wait for magic |
 | Rings | Two worn at once. Regeneration, accuracy, protection, awareness |
 | Curses | Soft: negative gear can't be removed for 50 turns per point below zero. Enchanting breaks a curse |
-| Terrain | Floor, wall, stairs down, doors, traps |
+| Terrain | Floor, wall, shallow water, stairs down, doors, traps |
 | Vision | Line-of-sight field of view, explored areas remembered in dim colors |
 | Visuals | Colored ASCII. Drawing is kept separate from game logic so tiles could be added |
 | Input | Keyboard only |
@@ -62,7 +62,7 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 - **Generation.** Place non-overlapping rectangular rooms, connect them with corridors, add doors at room entrances, place stairs, monsters, items and traps.
 - **Zones (v1 has three).** Crypts (floors 1–6), Flooded Halls (7–12), Deep Warrens (13–18); see the milestone 11 plan. Each zone sets floor size, wall and floor colors, monster pool, item weights and themed rooms.
 - **Cycling.** After the last zone, the cycle restarts with a loop number. Each loop increases monster health, damage and accuracy.
-- **Themed rooms.** Special rooms with their own layout and contents, such as an ossuary, a treasure vault or a guard post.
+- **Themed rooms.** Special rooms with their own layout and contents: a crypt tomb, a flooded cistern, a warrens den or larder (see the milestone 11 plan).
 - **Seeds.** Every floor comes from a seeded random generator, so a run can be replayed exactly for debugging.
 
 ### Items
@@ -71,11 +71,12 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 - **Rings.** Up to two worn at once. Regeneration heals faster, accuracy adds to hit chance, protection adds armor, and awareness widens sight (and will reveal traps once they exist). A ring's enchantment sets its strength. Rings start unknown.
 - **Wands.** Deferred until magic arrives with the mage background.
 - **Soft curses.** Equipping negative gear locks it in place for 50 turns per point below zero (-1: 50, -2: 100, -3: 150). Reading enchanting on it breaks the curse at once.
+- **Artifacts.** Rare named weapons that slay certain monsters; see "After v1" below.
 - **Identification.** Drinking or reading an unknown kind identifies it for the rest of the run. A new scroll of identify reveals one chosen item. Equipped weapons, armor and rings reveal their enchantment after about 300 turns worn, faster with higher Intellect. Carrying alone does nothing.
 
 ### Monsters
 - Defined in data tables: symbol, color, health, attack, defense, speed, zone, behavior.
-- Simple behaviors first: wander until the player is seen, then chase and attack. Later: fleeing, ranged attackers, packs.
+- Simple behaviors first: wander until the player is seen, then chase and attack. Packs came in milestone 10; ranged attackers are next.
 - A speed or energy system allows fast and slow monsters.
 
 ### Interface
@@ -88,7 +89,7 @@ Terminal screen split into: the map, a sidebar with health, hunger, attributes a
 - **Renderer boundary.** Game logic never calls crossterm. It produces what to draw, and a terminal module draws it. A tile renderer could replace that module later.
 - **Content as Rust data tables.** Monsters, items and zones live in const arrays. This avoids a serialization library and keeps builds fast.
 - **Dependencies.** crossterm for the terminal. Possibly one tiny RNG crate, or our own small generator. Nothing else without a clear reason.
-- **Modules (planned):** `map`, `dungeon` (generation), `fov`, `entity`, `combat`, `ai`, `item`, `player`, `zone`, `ui`, `render`, `rng`.
+- **Modules.** The original plan listed `map`, `dungeon`, `fov`, `entity`, `combat`, `ai`, `item`, `player`, `zone`, `ui`, `render` and `rng`. The code grew past it; the README's Development section has the current list.
 
 ## Milestones
 
@@ -253,8 +254,23 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 **Where v1 ended (2026-10-01).** Against the Part B recheck: the bot's median on fresh seeds is 21, just above the 15-20 target; 4 of 200 runs reach the turn limit; and no monster leads by much, though wraiths (14%), vampires (13%) and demons (11%) are each a little over 10% of deaths. At the user's measured pace (13.5-18 seconds per 100 turns) the bot's median run takes 13-17 minutes, inside the 10-20 minute target. The user's own runs ended at depths 2-11, plus one at 32 once they used their healing. Left for later: a harder first loop if the median should come down, and the open items below.
 
-## Later, after v1
+## After v1
 
+Built on 2026-10-02, mostly from the user's recorded runs.
+
+- **Auto pickup toggle (`@`).** Saved in `settings.txt` next to the high scores, and recorded as an action so replays stay exact. With it off, auto-explore leaves items alone; the bot always collects.
+- **Fixes from a whole-codebase Codex review of v1:** a resize in a menu no longer counts as cancel (it wasted an unknown scroll at its target prompt); auto-explore and travel steps are recorded as they happen; `--analyze` leaves bot play out of the pace; recording names never collide.
+- **Gear comparison.** Unequipped weapons and armor show what equipping them would change ("armor +2, dodge -1"), worked out from what the player knows: unknown enchantments count as 0 and get a "?".
+- **Shorter low-health warning** that names the potion's pack letter.
+- **Rest until healed (`R`).** All 21 recordings against the bot on the same seeds: the user's median depth 8, the bot's 24. In 13 of 18 deaths healing was still in the pack, nearly always after exploring at 15-40% health into a depth 5-12 hitter, where the bot rests to 80% first. `R` waits to full health, stopping like exploring does, and won't start at full health, with an awake monster in view, or when Weak. The first run with it reached depth 37 (tying the best), with walking about below half health down from 7-25% of quiet moves to 0.8%.
+- **"Your blows barely scratch the X."** That run died to a depth-37 vampire that never dropped below 990 of 996 health: vampires and trolls regenerate 3% of maximum health a turn, matching the user's damage. After 8 attacks in a row that leave a monster's health bar no lower, the log says so once. Message only.
+- **Artifacts**, chosen by the user over rebalancing regeneration. Sunsteel (silver sword, 2-6, accuracy +1) does double damage to the undead and trolls and sears them: no regeneration or blood drinking for 5 turns. Hellbane (blessed mace, 2-7) does triple damage to demons and oni. Each appears in a third of runs, on one floor (Sunsteel 13-20, Hellbane 22-28), from its own generator so floors are otherwise unchanged and old recordings replay. Named on sight, +0 to +2, never cursed. The bot swaps one in to fight its prey. Bot on seeds 5001-5400: median 22 to 23; the 84 runs that found one, median 30 to 33.5.
+
+## Later
+
+- A ranged enemy that warns a turn before it shoots, with bot support and a balance check (monster abilities step 4), then status effects: poison, paralysis
+- A stronger replay check (a rules id or state checkpoints), ideally before or with the ranged enemy
+- Small follow-ups: a warning when auto-explore starts below about half health; a message when an artifact first comes into view; wrapping menu text on narrow screens
 - Save on quit
 - More backgrounds: rogue, mage (brings magic, spells and wands), ranger
 - Species

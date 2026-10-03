@@ -126,7 +126,7 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 
 Walls and closed doors block sight. What you can see is drawn in full color. Places you have explored stay on screen in cold, dim colors, along with the items lying there. Monsters are only shown while in sight. Look (`L`) names everything in view and says what makes each monster dangerous.
 
-The sidebar shows the zone you're in, your health, food, attributes, depth, turn, seed and equipment, then every monster in view with a health bar and whether it is asleep, wandering or hunting. The log at the bottom reports what happens, with damage you take in red and kills in green; `m` scrolls back through it.
+The sidebar shows the zone you're in, your health, food, attributes, depth, turn, seed and equipment, then every monster in view with a health bar and whether it is asleep, wandering or hunting. The log at the bottom reports what happens, with damage you take in red and kills in green; `m` scrolls back through it. The log also gives hints: below half health it names the healing you know and its pack letter, and when you pick up armor that looks more protective, or an unknown ring with a finger free, it says so.
 
 ## How it plays
 
@@ -168,7 +168,7 @@ Your pack holds 26 items. Potions and scrolls of the same kind stack, and each i
 
 **The end of a run.** When you die or give up, the death screen shows how the run ended, your character level, the seed and the time played, then the run in numbers: monsters slain and which kind most often, the toughest foe you killed, accuracy, damage dealt and taken, stairs and trapdoors, and what you picked up and used. Below that is the high score list with your run marked.
 
-**High scores** keep the ten best runs, ranked by depth reached, then fewer turns. They are saved in `~/.local/share/smallrogue/scores.tsv` (or under `$XDG_DATA_HOME`), with each run's level, turns, kills, time played, how it ended and the date. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute.
+**High scores** keep the ten best runs, ranked by depth reached, then fewer turns. They are saved in `~/.local/share/smallrogue/scores.tsv` (or under `$XDG_DATA_HOME`), with each run's level, turns, kills, time played, how it ended and the date. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute. Settings, so far just auto pickup, are saved next to the scores in `settings.txt`.
 
 ## Development
 
@@ -191,7 +191,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
 | `skills` | Skills that improve by use, experience and levels |
-| `stats`, `scores` | Counts kept over a run; the saved high score list |
+| `stats`, `scores`, `settings` | Counts kept over a run; the saved high score list; saved settings |
 | `trap` | Hidden traps: placing, noticing and springing them |
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
 | `lore` | Per-run item appearances, what the player has identified, and item names |
@@ -210,9 +210,10 @@ The terminal renderer draws only changed cells, and the game waits for input wit
 
 ## Roadmap
 
-The first version is nearly complete: what's left is settling run length from recorded play. After that:
+The first version is complete (tagged `v1`). Since then: auto pickup, gear comparison, resting until healed, the "barely scratch" warning, and the two artifacts. Next:
 
-- More monster abilities: ranged attackers, and status effects like poison and paralysis
+- A ranged enemy that warns a turn before it shoots, then status effects like poison and paralysis
+- A stronger check that old recordings still replay under the current rules
 - More zones, monsters, items and themed rooms
 - Save on quit, and more character backgrounds
 
