@@ -175,7 +175,7 @@ impl Game {
         game.lore.learn(ItemKind::Potion(PotionKind::Healing));
         game.enter_floor(1);
         game.log("You descend into the dark.");
-        game.welcome_to_zone();
+        game.announce_floor();
         game.update_fov();
         game
     }
@@ -239,10 +239,25 @@ impl Game {
         Place::at_depth(self.depth)
     }
 
-    /// Announces a zone on its first floor.
-    pub(crate) fn welcome_to_zone(&mut self) {
+    /// Announces a zone on its first floor, and any artifact lying
+    /// somewhere on this one, so the player knows it's worth searching.
+    pub(crate) fn announce_floor(&mut self) {
         if let Some(text) = self.place().welcome() {
             self.log_as(&text, MsgKind::Good);
+        }
+        let here: Vec<_> = self
+            .items
+            .iter()
+            .filter_map(|fi| match fi.item.kind {
+                ItemKind::Weapon(w) if w.is_artifact() => w.bane(),
+                _ => None,
+            })
+            .collect();
+        for bane in here {
+            self.log_as(
+                &format!("You sense {bane}, somewhere on this floor."),
+                MsgKind::Good,
+            );
         }
     }
 
@@ -470,7 +485,7 @@ impl Game {
         self.enter_floor(self.depth + 1);
         self.stats.stairs_taken += 1;
         self.log(&format!("You descend to depth {}.", self.depth));
-        self.welcome_to_zone();
+        self.announce_floor();
         Outcome::NewFloor
     }
 
@@ -846,6 +861,37 @@ mod tests {
 
     const EAST: Point = Point::new(1, 0);
     const WEST: Point = Point::new(-1, 0);
+
+    #[test]
+    fn an_artifact_on_a_floor_is_sensed_on_arrival() {
+        // The first seed whose Sunsteel lies on a floor in reach.
+        let (seed, depth) = (1..)
+            .find_map(|seed| {
+                (13..=20)
+                    .find(|&d| {
+                        item::artifacts_on_floor(seed, d).contains(&item::WeaponKind::Sunsteel)
+                    })
+                    .map(|d| (seed, d))
+            })
+            .unwrap();
+        let mut game = Game::new(seed);
+        game.log.clear();
+        game.enter_floor(depth);
+        game.announce_floor();
+        assert!(
+            game.log
+                .iter()
+                .any(|m| m.text
+                    == "You sense Sunsteel, bane of the undead, somewhere on this floor."),
+            "{:?}",
+            game.log.iter().map(|m| &m.text).collect::<Vec<_>>()
+        );
+        // A floor without one says nothing of the kind.
+        game.log.clear();
+        game.enter_floor(1);
+        game.announce_floor();
+        assert!(!game.log.iter().any(|m| m.text.contains("You sense")));
+    }
 
     #[test]
     fn walls_block_movement_and_cost_no_turn() {

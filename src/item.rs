@@ -170,6 +170,16 @@ impl WeaponKind {
         }
     }
 
+    /// An artifact's name with what it slays, as the player senses it
+    /// on arriving at its floor: "Sunsteel, bane of the undead".
+    pub fn bane(self) -> Option<&'static str> {
+        match self {
+            Self::Sunsteel => Some("Sunsteel, bane of the undead"),
+            Self::Hellbane => Some("Hellbane, bane of demons"),
+            _ => None,
+        }
+    }
+
     /// Whether it's made to kill this kind of monster.
     pub fn slays(self, kind: Kind) -> bool {
         self.slaying().is_some_and(|s| s.prey.contains(&kind))
