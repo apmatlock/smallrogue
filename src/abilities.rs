@@ -135,6 +135,7 @@ impl Game {
         );
         // Same depth scaling as its parent, and exactly half its health.
         twin.boost = self.monsters[i].boost;
+        twin.fierce = self.monsters[i].fierce;
         twin.hp = half;
         self.monsters.push(twin);
         let name = kind.species().name;

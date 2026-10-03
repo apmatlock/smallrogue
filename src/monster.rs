@@ -10,7 +10,6 @@ use crate::frame::Rgb;
 use crate::geom::Point;
 use crate::item::Item;
 use crate::rng::Rng;
-use crate::zone::Place;
 
 /// Energy a creature spends to take one action. Each turn a monster
 /// gains energy equal to its speed, so speed 100 acts once per turn,
@@ -42,32 +41,23 @@ pub const MAX_MONSTERS: usize = 16;
 /// How much more common a monster is in its home zone.
 pub const HOME_WEIGHT: i32 = 4;
 
-/// Each pass through the zones after the first scales monsters as if
-/// they were this many floors deeper again, on top of their depth. The
-/// main lever against characters who outgrow the dungeon.
-pub const LOOP_EXTRA_FLOORS: u32 = 3;
-/// How much more each loop after the second adds than the one before,
-/// in floors. Without it a character strong enough to finish loop 2
-/// outgrew the dungeon: a fifth of bot runs never died.
-pub const LOOP_GROWTH: u32 = 4;
+/// Past `FIERCE_FROM`, monsters hit harder and more accurately than
+/// their depth alone makes them: `FIERCE_PER_FLOOR` extra floors of
+/// damage and accuracy for each floor past it. Health doesn't get the
+/// extra: it compounds per floor, and when it did, fights deep down
+/// grew long faster than the character could keep up, so the death
+/// rate per floor shot from a few percent to most runs within ten
+/// floors. Danger from harder hits rises more evenly.
+///
+/// This replaced two step-shaped knobs, extra floors per pass through
+/// the zones and a ramp from depth 24, which made the death rate jump
+/// where loops began (19 and 37) and sag in between.
+pub const FIERCE_FROM: u32 = 12;
+pub const FIERCE_PER_FLOOR: u32 = 1;
 
-/// The extra floors of strength monsters get after `loops_done`
-/// passes through the zones: 0, then 3, then growing by
-/// `LOOP_GROWTH` more each loop.
-pub fn loop_extra_floors(loops_done: u32) -> u32 {
-    LOOP_EXTRA_FLOORS * loops_done + LOOP_GROWTH * loops_done * loops_done.saturating_sub(1) / 2
-}
-
-/// Past this depth, each floor deeper adds `DEEP_EXTRA_PER_FLOOR` more
-/// floors of strength. Without it, runs that got through loop 2's
-/// crypts (19-24) rarely died before loop 3: the rest of loop 2 was a
-/// plateau.
-pub const DEEP_RAMP_FROM: u32 = 24;
-pub const DEEP_EXTRA_PER_FLOOR: u32 = 1;
-
-/// The extra floors of strength from the deep ramp at this depth.
-pub fn deep_extra_floors(depth: u32) -> u32 {
-    depth.saturating_sub(DEEP_RAMP_FROM) * DEEP_EXTRA_PER_FLOOR
+/// The extra floors of damage and accuracy monsters get at this depth.
+pub fn fierce_floors(depth: u32) -> u32 {
+    depth.saturating_sub(FIERCE_FROM) * FIERCE_PER_FLOOR
 }
 
 /// Extra experience per floor, in percent of the base. Not compounding,
@@ -779,6 +769,8 @@ pub struct Monster {
     pub hp: i32,
     /// Floors of scaling on top of its base stats: depth minus 1.
     pub boost: i32,
+    /// Extra floors of damage and accuracy on top of `boost`, deep down.
+    pub fierce: i32,
     /// An item it stole, dropped when it dies.
     pub carrying: Option<Item>,
     /// How the player's attacks on it are going, to warn when they
@@ -820,19 +812,16 @@ impl Monster {
         Self::at_depth(kind, pos, ai, 1)
     }
 
-    /// A monster scaled for the given depth, and for the loop that
-    /// depth is in.
+    /// A monster scaled for the given depth.
     pub fn at_depth(kind: Kind, pos: Point, ai: Ai, depth: u32) -> Self {
-        let loops_done = Place::at_depth(depth).loop_number - 1;
         let mut monster = Self {
             kind,
             pos,
             energy: 0,
             ai,
             hp: 0,
-            boost: (depth.saturating_sub(1)
-                + loop_extra_floors(loops_done)
-                + deep_extra_floors(depth)) as i32,
+            boost: depth.saturating_sub(1) as i32,
+            fierce: fierce_floors(depth) as i32,
             carrying: None,
             wear: Wear::default(),
             seared: 0,
@@ -870,9 +859,10 @@ impl Monster {
 
     pub fn attack(&self) -> Attack {
         let s = self.species();
-        let damage = self.boost / FLOORS_PER_DAMAGE_POINT;
+        let floors = self.boost + self.fierce;
+        let damage = floors / FLOORS_PER_DAMAGE_POINT;
         Attack {
-            accuracy: s.accuracy + self.boost / FLOORS_PER_ACCURACY_POINT,
+            accuracy: s.accuracy + floors / FLOORS_PER_ACCURACY_POINT,
             damage: (s.damage.0 + damage, s.damage.1 + damage),
         }
     }
@@ -1029,42 +1019,20 @@ mod tests {
     }
 
     #[test]
-    fn later_loops_scale_monsters_further() {
+    fn deep_monsters_hit_harder_but_are_no_tougher() {
         let orc = |depth| Monster::at_depth(Kind::Orc, Point::default(), Ai::Asleep, depth);
-        let last_floor = crate::zone::FLOORS_PER_ZONE * crate::zone::ZONES.len() as u32;
-        // Within a loop, one floor deeper is one step of scaling.
-        assert_eq!(orc(last_floor).boost, last_floor as i32 - 1);
-        // Into the next loop, the extra floors are added on top.
-        assert_eq!(
-            orc(last_floor + 1).boost,
-            (last_floor + LOOP_EXTRA_FLOORS) as i32
-        );
-    }
-
-    #[test]
-    fn the_deep_ramp_starts_after_the_second_crypts() {
-        let boost = |depth| Monster::at_depth(Kind::Orc, Point::default(), Ai::Asleep, depth).boost;
-        let loop_2 = loop_extra_floors(1) as i32;
-        assert_eq!(boost(DEEP_RAMP_FROM), DEEP_RAMP_FROM as i32 - 1 + loop_2);
-        // Each floor past the start is a step of depth plus a step of ramp.
-        let past = DEEP_RAMP_FROM + 5;
-        assert_eq!(
-            boost(past),
-            past as i32 - 1 + loop_2 + 5 * DEEP_EXTRA_PER_FLOOR as i32
-        );
-    }
-
-    #[test]
-    fn each_loop_adds_more_than_the_last() {
-        assert_eq!(loop_extra_floors(0), 0);
-        assert_eq!(loop_extra_floors(1), LOOP_EXTRA_FLOORS);
-        let steps: Vec<u32> = (1..5)
-            .map(|k| loop_extra_floors(k) - loop_extra_floors(k - 1))
-            .collect();
-        assert!(
-            steps.windows(2).all(|w| w[1] == w[0] + LOOP_GROWTH),
-            "{steps:?}"
-        );
+        let (shallow, deep) = (orc(FIERCE_FROM), orc(FIERCE_FROM + 10));
+        assert_eq!(shallow.fierce, 0);
+        assert_eq!(deep.fierce, 10 * FIERCE_PER_FLOOR as i32);
+        // Health and dodge follow depth alone.
+        assert_eq!(deep.boost, (FIERCE_FROM + 10 - 1) as i32);
+        let plain = Monster {
+            fierce: 0,
+            ..deep.clone()
+        };
+        assert_eq!(deep.max_hp(), plain.max_hp());
+        assert!(deep.attack().damage.1 > plain.attack().damage.1);
+        assert!(deep.attack().accuracy > plain.attack().accuracy);
     }
 
     #[test]

@@ -20,9 +20,9 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 | Depth | Endless |
 | Dungeon | Classic rooms and corridors |
 | Themes | Zones cover bands of floors, with special themed rooms inside them |
-| Beyond last zone | Zones cycle in order with scaled-up monster variants each loop |
+| Beyond last zone | Zones cycle in order; deeper monsters keep getting deadlier |
 | Floor size | Varies by zone; the view scrolls when a floor is larger than the screen |
-| Run length | 10–20 minutes for a decent player |
+| Run length | No target since 2026-10-03: depth is the score, so difficulty rises steadily with depth instead (see "After v1") |
 | Content scope | Start small, systems designed so content is easy to add |
 | Saving | Not in v1. Keep all game state in one struct so save-on-quit is easy to add later |
 | Meta progression | Pure permadeath. Only a high-score list carries over |
@@ -61,7 +61,7 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 ### Dungeon
 - **Generation.** Place non-overlapping rectangular rooms, connect them with corridors, add doors at room entrances, place stairs, monsters, items and traps.
 - **Zones (v1 has three).** Crypts (floors 1–6), Flooded Halls (7–12), Deep Warrens (13–18); see the milestone 11 plan. Each zone sets floor size, wall and floor colors, monster pool, item weights and themed rooms.
-- **Cycling.** After the last zone, the cycle restarts with a loop number. Each loop increases monster health, damage and accuracy.
+- **Cycling.** After the last zone, the cycle restarts with a loop number. Monsters keep scaling with depth, with no extra step at a loop (see "After v1").
 - **Themed rooms.** Special rooms with their own layout and contents: a crypt tomb, a flooded cistern, a warrens den or larder (see the milestone 11 plan).
 - **Seeds.** Every floor comes from a seeded random generator, so a run can be replayed exactly for debugging.
 
@@ -221,7 +221,7 @@ Entering a zone logs a message and the sidebar shows the zone's name; from loop 
 - Step 1: zones with their own floors and colors. Balance neutral on fresh seeds; runs reaching the turn limit fell from 68 to 49.
 - Step 2: home monsters and item weights. Fresh seeds: median depth 21 to 17, average 28.7 to 25.4.
 - Step 3: shallow water and themed rooms, kept as extra risk and reward. They made runs much easier: fresh median 17 to 44, average 25.4 to 33.7, turn-limit runs 48 to 84. Controlled tests on the same seeds found why. Water and the reshuffled random rolls alone changed nothing (median 19), but the extra monsters and the extra items each made the bot stronger. Even one item per room with the monsters awake still gave a median of 42. **Every extra monster is worth more in experience than it costs in danger**, so adding content on top of a floor makes the game easier. The user chose to keep themed rooms as they are and pull difficulty back in step 4.
-- Step 4: loop scaling. `LOOP_EXTRA_FLOORS` scales monsters in each loop after the first as if that many floors deeper again. A sweep on fresh seeds showed a cliff: at 6 or more, loop 2's crypts became a wall (at 6, 129 of 200 runs died there and none reached the turn limit; at 12, nobody passed depth 22). **3 was chosen**: fresh median 20, average 23.7, 26 runs at the turn limit (was 84), and 66 of 200 runs getting past the second crypts. Seeds 1-100 agree (median 20, average 25.4). Capping spawn weights at 6x (recent times home can reach 12x) didn't help: vampires stay the top killer in loop 2 (41 of 200 deaths), which looks like the monster itself rather than how often it spawns. Left for milestone 12.
+- Step 4: loop scaling. `LOOP_EXTRA_FLOORS` scales monsters in each loop after the first as if that many floors deeper again. A sweep on fresh seeds showed a cliff: at 6 or more, loop 2's crypts became a wall (at 6, 129 of 200 runs died there and none reached the turn limit; at 12, nobody passed depth 22). **3 was chosen**: fresh median 20, average 23.7, 26 runs at the turn limit (was 84), and 66 of 200 runs getting past the second crypts. Seeds 1-100 agree (median 20, average 25.4). Capping spawn weights at 6x (recent times home can reach 12x) didn't help: vampires stay the top killer in loop 2 (41 of 200 deaths), which looks like the monster itself rather than how often it spawns. Left for milestone 12. (Loop scaling was replaced on 2026-10-03; see "Balance by depth".)
 
 Later ideas: monster name prefixes in later loops ("elder zombie"), water that slows movement.
 
@@ -248,7 +248,7 @@ Decided with the user: all five readability features; quit runs go on the high s
 
 - A 1,000-run batch on fresh seeds 2001-3000 showed a split: runs either ended by the second crypts or outgrew the dungeon, with 20% surviving to the turn limit around depths 40-55. Loop scaling now grows: loop 2 keeps +3 floors, and each later loop adds `LOOP_GROWTH` (4) more than the one before (+10 in loop 3, +21 in loop 4). Over the same 1,000 seeds, runs ending by depth 36 are identical; turn-limit runs fell from 200 to 89, the best depth from 55 to 46, and the median stayed at 22. A growth of 8 made the third crypts a wall (nobody past depth 41) and was not kept.
 
-- The user's 12th recorded run reached depth 32 comfortably, and the batch showed why: runs that got through loop 2's crypts almost never died in floors 25-36 (23 of 500), then piled up at loop 3 (182 ended at 37-42). A deep ramp now adds `DEEP_EXTRA_PER_FLOOR` (1) more floor of strength for each floor past `DEEP_RAMP_FROM` (24). On fresh seeds 1001-1200, runs ending by depth 24 are identical; the average fell from 24.7 to 21.7 and the median stayed at 21; deaths at 25-36 rose from 5 to 72, runs past 36 fell from 78 to 11 (best depth 45 to 38), and turn-limit runs from 9 to 4. Seeds 1-100 agree. A ramp of 0.5 left 29 of 100 runs past 36, 1.5 stopped everyone by 35, and starting at depth 20 piled deaths into the second crypts. The median can't reach 15-20 from here: most runs pass depth 21 before the ramp starts.
+- The user's 12th recorded run reached depth 32 comfortably, and the batch showed why: runs that got through loop 2's crypts almost never died in floors 25-36 (23 of 500), then piled up at loop 3 (182 ended at 37-42). A deep ramp now adds `DEEP_EXTRA_PER_FLOOR` (1) more floor of strength for each floor past `DEEP_RAMP_FROM` (24). On fresh seeds 1001-1200, runs ending by depth 24 are identical; the average fell from 24.7 to 21.7 and the median stayed at 21; deaths at 25-36 rose from 5 to 72, runs past 36 fell from 78 to 11 (best depth 45 to 38), and turn-limit runs from 9 to 4. Seeds 1-100 agree. A ramp of 0.5 left 29 of 100 runs past 36, 1.5 stopped everyone by 35, and starting at depth 20 piled deaths into the second crypts. The median can't reach 15-20 from here: most runs pass depth 21 before the ramp starts. (Replaced on 2026-10-03; see "Balance by depth".)
 
 **Part C: wrap-up.** README refresh, Codex review, DESIGN.md and session log. That completes v1.
 
@@ -265,6 +265,18 @@ Built on 2026-10-02, mostly from the user's recorded runs.
 - **Rest until healed (`R`).** All 21 recordings against the bot on the same seeds: the user's median depth 8, the bot's 24. In 13 of 18 deaths healing was still in the pack, nearly always after exploring at 15-40% health into a depth 5-12 hitter, where the bot rests to 80% first. `R` waits to full health, stopping like exploring does, and won't start at full health, with an awake monster in view, or when Weak. The first run with it reached depth 37 (tying the best), with walking about below half health down from 7-25% of quiet moves to 0.8%.
 - **"Your blows barely scratch the X."** That run died to a depth-37 vampire that never dropped below 990 of 996 health: vampires and trolls regenerate 3% of maximum health a turn, matching the user's damage. After 8 attacks in a row that leave a monster's health bar no lower, the log says so once. Message only.
 - **Artifacts**, chosen by the user over rebalancing regeneration. Sunsteel (silver sword, 2-6, accuracy +1) does double damage to the undead and trolls and sears them: no regeneration or blood drinking for 5 turns. Hellbane (blessed mace, 2-7) does triple damage to demons and oni. Each appears in a third of runs, on one floor (Sunsteel 13-20, Hellbane 22-28), from its own generator so floors are otherwise unchanged and old recordings replay. Named on sight, +0 to +2, never cursed. The bot swaps one in to fight its prey. Bot on seeds 5001-5400: median 22 to 23; the 84 runs that found one, median 30 to 33.5.
+
+### Balance by depth (2026-10-03)
+
+The user dropped the 10-20 minute run target: depth is the score, so the aim is now that **every floor is a bit more dangerous than the one before**, with no plateau to coast through and no wall. Balance is judged by the bot's death rate per floor (of the runs that reached a depth, the share that died there), on seeds 2001-3000.
+
+- **The bot rests to full from depth 13**, as a player with `R` does: median depth 22 to 28. Healing earlier as well made no difference. It also fights pink jellies from corridors (one hold per floor): jelly deaths 37 to 28, overall even. Leaving fights it only scratched lost slightly and was dropped.
+- **Artifacts measured fairly** (the same seeds with artifacts off): each is worth about two floors to a run that picks it up (Sunsteel 162 runs, +2.2; Hellbane 83 runs, +2.0). The bot picks up only 58-66% of those it could reach, since it dives once it knows the stairs.
+- **Wandering monsters arriving over time**, meant to make resting risky, made the game easier at every rate tried (one per 75, 150 or 300 turns: median 28 to 32). Like themed rooms, each extra monster is worth more in experience than it costs. Dropped.
+- **The old curve** with the sim's turn limit raised to 60,000: a death rate of 1-6% per floor through depth 33 with dips (16-18, 22-24) and a spike where loop 2 began (19-21, +3 floors of strength at once), then a wall: everyone died by depth 39, where loop 3 added about 9 floors at once.
+- **A smooth quadratic ramp** of extra floors in place of the loop steps (three steepnesses) only moved the wall: once it started, the death rate went from a few percent to most runs within about nine floors. Monster health compounds 6% a floor, so extra floors made fights grow long faster than the character grows.
+- **Kept: deep monsters hit harder, not tougher.** From `FIERCE_FROM` (12), each floor adds `FIERCE_PER_FLOOR` (1) extra floors of damage and accuracy only; health and dodge follow depth alone. The loop steps and the deep ramp are gone. Death rate per floor: about 3% at 10-15, 7% at 16-18, 15-18% at 19-24, 31-35% at 25-30; median depth 19, average 18.6, best 37; starvation deaths 29 to 9. Twice the rate made a wall at 19-24 (median 16, best 25). Floors 1-12 are unchanged.
+- The sim's turn limit is now 60,000 and a run counts as stalled after 10,000 turns on a floor, since a deep rest to full can take 2,000 turns.
 
 ## Later
 

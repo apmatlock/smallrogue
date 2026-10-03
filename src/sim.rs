@@ -15,7 +15,7 @@ use crate::item::{self, ItemKind, WeaponKind};
 
 /// A run stops here if the bot is still alive, so a run can't go on
 /// forever.
-pub const MAX_TURNS: u64 = 20_000;
+pub const MAX_TURNS: u64 = 60_000;
 
 /// Actions in a row that take no time before a run counts as stuck.
 const STUCK_AFTER: u32 = 100;
@@ -33,7 +33,9 @@ pub enum Ending {
 }
 
 /// Turns without reaching a new floor before a run counts as stalled.
-const STALLED_AFTER: u64 = 5_000;
+/// Deep down, a bot resting to full can spend a couple of thousand
+/// turns healing on one floor, more than once, so this is generous.
+const STALLED_AFTER: u64 = 10_000;
 
 #[derive(Clone, Debug)]
 pub struct RunResult {
