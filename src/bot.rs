@@ -10,7 +10,7 @@
 use crate::game::{Action, Game};
 use crate::geom::{DIRECTIONS_8, Point};
 use crate::inventory::HEALING;
-use crate::item::{FoodKind, Item, ItemKind, PotionKind, ScrollKind};
+use crate::item::{FoodKind, Item, ItemKind, PotionKind, ScrollKind, WeaponKind};
 use crate::map::Tile;
 use crate::monster::{Ability, Ai, Monster};
 use crate::path;
@@ -76,6 +76,8 @@ pub struct BotMemory {
     /// jelly that drops in and out of view would otherwise start and
     /// end holds forever, the bot stepping back and forth between them.
     held: bool,
+    /// Artifacts sensed on arriving at this floor, as the player is told.
+    sensed: Vec<WeaponKind>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +104,7 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     if memory.depth != game.depth {
         *memory = BotMemory {
             depth: game.depth,
+            sensed: sensed_artifacts(game),
             ..BotMemory::default()
         };
     }
@@ -257,6 +260,13 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     if !game.auto_pickup && item_underfoot_wanted(game) {
         return Action::PickUp;
     }
+    // An artifact sensed here and not yet found is worth searching the
+    // whole floor for. Exploring walks to it once it comes into view.
+    if searching_for_artifact(game, memory)
+        && let Some(action) = explore(game, true)
+    {
+        return action;
+    }
     if known_stairs(game).is_some() && memory.plan.is_none() {
         memory.plan = consider_fetch(game, &memory.gave_up_on);
         if let Some(action) = follow_plan(game, memory) {
@@ -275,6 +285,30 @@ pub fn next_action(game: &Game, memory: &mut BotMemory) -> Action {
     // Nothing left to explore and no way to the stairs: a sleeping
     // monster must be blocking the way on. Only now go and fight it.
     step_toward_monster(game, &asleep).unwrap_or(Action::Wait)
+}
+
+/// Artifacts lying on this floor, which the player senses on arrival.
+/// Only called on the bot's first turn on a floor, so it knows no more
+/// than the message told the player.
+fn sensed_artifacts(game: &Game) -> Vec<WeaponKind> {
+    game.items
+        .iter()
+        .filter_map(|fi| match fi.item.kind {
+            ItemKind::Weapon(w) if w.is_artifact() => Some(w),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether an artifact sensed on this floor is still to be found.
+fn searching_for_artifact(game: &Game, memory: &BotMemory) -> bool {
+    memory.sensed.iter().any(|&w| {
+        !game
+            .player
+            .inventory
+            .iter()
+            .any(|i| i.kind == ItemKind::Weapon(w))
+    })
 }
 
 /// Where the stairs are, if the player has seen them.
@@ -1696,5 +1730,72 @@ mod tests {
         game.apply(Action::Equip(letter));
         let hellbane = Item::new(ItemKind::Weapon(WeaponKind::Hellbane));
         assert!(worth_picking_up(&game, &hellbane));
+    }
+
+    /// A room with seen stairs, and down a corridor an unseen room with
+    /// Sunsteel in its far corner. Returns where Sunsteel lies.
+    fn sunsteel_out_of_sight(game: &mut Game) -> Point {
+        let mut map = crate::map::Map::new_filled(40, 11);
+        map.carve_room(1, 1, 17, 9);
+        map.carve_room(18, 5, 4, 1);
+        map.carve_room(22, 1, 16, 9);
+        game.place_on_map(map, Point::new(2, 5));
+        game.monsters.clear();
+        game.items.clear();
+        game.traps.clear();
+        let stairs = Point::new(16, 2);
+        game.map.set_tile(stairs, Tile::StairsDown);
+        for y in 0..11 {
+            for x in 0..19 {
+                game.map.reveal(Point::new(x, y));
+            }
+        }
+        let sunsteel = Point::new(37, 1);
+        drop_at(game, ItemKind::Weapon(WeaponKind::Sunsteel), sunsteel);
+        game.update_fov();
+        assert!(!game.map.is_revealed(sunsteel), "out of sight at first");
+        sunsteel
+    }
+
+    #[test]
+    fn it_searches_the_floor_for_a_sensed_artifact() {
+        let mut game = Game::new(1);
+        sunsteel_out_of_sight(&mut game);
+        let mut memory = BotMemory::default();
+        for _ in 0..200 {
+            let action = next_action(&game, &mut memory);
+            assert_ne!(action, Action::Descend, "leaves Sunsteel behind");
+            game.apply(action);
+            if game
+                .player
+                .inventory
+                .iter()
+                .any(|i| i.kind == ItemKind::Weapon(WeaponKind::Sunsteel))
+            {
+                // Then on down.
+                for _ in 0..100 {
+                    let action = next_action(&game, &mut memory);
+                    if action == Action::Descend {
+                        return;
+                    }
+                    game.apply(action);
+                }
+                panic!("never heads down after finding it");
+            }
+        }
+        panic!("never finds Sunsteel");
+    }
+
+    #[test]
+    fn an_artifact_not_sensed_on_arrival_is_not_searched_for() {
+        // Dropped after the bot's first turn here: the player was never
+        // told, so the bot heads straight for the stairs.
+        let mut game = Game::new(1);
+        let sunsteel = sunsteel_out_of_sight(&mut game);
+        game.items.clear();
+        let mut memory = BotMemory::default();
+        next_action(&game, &mut memory);
+        drop_at(&mut game, ItemKind::Weapon(WeaponKind::Sunsteel), sunsteel);
+        assert!(!searching_for_artifact(&game, &memory));
     }
 }

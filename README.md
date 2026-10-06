@@ -50,7 +50,7 @@ A recording replays exactly only as long as the game's rules stay the same. Runs
 
 ### Let the bot play
 
-A built-in bot can play for you. It dives: once it has seen the stairs it heads down, first going back for anything useful it has seen nearby. It fights what hunts it, runs for the stairs when hurt, swaps in better gear, and experiments with unknown potions and scrolls, using only what a player could see and know.
+A built-in bot can play for you. It dives: once it has seen the stairs it heads down, first going back for anything useful it has seen nearby, and searching the whole floor when it senses an artifact there. It fights what hunts it, runs for the stairs when hurt, swaps in better gear, and experiments with unknown potions and scrolls, using only what a player could see and know.
 
 ```sh
 cargo run --release -- --bot
