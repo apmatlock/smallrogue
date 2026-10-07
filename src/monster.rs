@@ -315,7 +315,7 @@ impl Kind {
                 name: "wraith",
                 glyph: 'W',
                 color: Rgb(185, 185, 225),
-                speed: 150,
+                speed: 125,
                 sight: 8,
                 opens_doors: true,
                 min_depth: 16,

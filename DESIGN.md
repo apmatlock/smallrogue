@@ -278,6 +278,15 @@ The user dropped the 10-20 minute run target: depth is the score, so the aim is 
 - **Kept: deep monsters hit harder, not tougher.** From `FIERCE_FROM` (12), each floor adds `FIERCE_PER_FLOOR` (1) extra floors of damage and accuracy only; health and dodge follow depth alone. The loop steps and the deep ramp are gone. Death rate per floor: about 3% at 10-15, 7% at 16-18, 15-18% at 19-24, 31-35% at 25-30; median depth 19, average 18.6, best 37; starvation deaths 29 to 9. Twice the rate made a wall at 19-24 (median 16, best 25). Floors 1-12 are unchanged.
 - The sim's turn limit is now 60,000 and a run counts as stalled after 10,000 turns on a floor, since a deep rest to full can take 2,000 turns.
 
+### Smoothing floor 19 (2026-10-06)
+
+Measured in batches of 10,000 runs on fresh seeds 10001-20000. Small batches misled: on seeds 1-200 not one run died on floor 18 or on an even floor before 10, which turned out to be chance. At 10,000 runs the real shape shows. The death rate steps up where a monster arrives (skeletons at 3, draugr at 5), dips on 18 when bulettes stop being new, and jumps from 4% on 18 to 18-20% on 19-20, where the Crypts come round again. There wraiths, vampires and stone golems are both new and at home (12 times as common, from 3 on floor 18), and they caused about 70% of floor-19 deaths.
+
+- **The bot searches a floor for a sensed artifact** before heading down. Sunsteel picked up 61% to 83% of the times one was on offer, Hellbane 53% to 69%. Runs with no artifact were unchanged.
+- **Lower weights for monsters both new and at home** (8, 6 and 4 in place of 12) made things worse: floor 19 rose to 18-21% and floors 25-30 rose sharply (floor 26 from 31% to 47% at 4). The character arrived 2-3 levels lower at the same depth. Those monsters are dangerous, but they are also where most of the experience comes from. Dropped.
+- **Frost giants arriving on floor 21 instead of 19** eased 19-20 but moved the wall to 25-26 (floor 26: 31% to 46%). They were still new when the Flooded Halls came round again, where they are at home, on the floor demons arrive. Dropped.
+- **Kept: wraiths at speed 125, down from 150.** Still faster than the player, but they get an extra action every fourth turn rather than every other one, so they hit less often. Death rate on floor 19 went from 18.0% to 15.3%, floor 20 from 19.5% to 15.8%, floor 21 from 14.8% to 11.4%. Floors 1-15 are unchanged, and the character is the same level at the same depth. Wraith deaths fell from 1,416 to 967; median depth went from 19 to 20, average from 18.7 to 19.1. Recordings with wraiths in them no longer replay exactly.
+
 ## Later
 
 - A ranged enemy that warns a turn before it shoots, with bot support and a balance check (monster abilities step 4), then status effects: poison, paralysis
