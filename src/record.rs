@@ -186,10 +186,10 @@ fn create_unused(dir: &Path, name: &str) -> io::Result<File> {
     unreachable!("the loop returns by the 100th try")
 }
 
-/// Where recordings are kept: next to the high scores.
+/// Where recordings are kept: in the data folder, next to the high
+/// scores.
 pub fn default_dir() -> Option<PathBuf> {
-    let scores = crate::scores::default_path()?;
-    Some(scores.parent()?.join("recordings"))
+    Some(crate::scores::data_dir()?.join("recordings"))
 }
 
 fn entry_line(e: &Entry) -> String {

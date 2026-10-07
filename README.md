@@ -28,7 +28,7 @@ Each floor's layout, monsters and items come from the run seed and the floor's d
 
 ### Recordings
 
-Every run you play is recorded to `~/.local/share/smallrogue/recordings` (or under `$XDG_DATA_HOME`): the seed, then each action with the time it happened and who chose it (you, auto-explore or the bot), plus a line for each new floor. A recording is a small text file, written as you play, so nothing is lost if the game is closed mid-run. `--no-record` turns it off.
+Every run you play is recorded to the `recordings` folder in the game's data folder, `~/.local/share/smallrogue` (`%APPDATA%\smallrogue` on Windows, or under `$XDG_DATA_HOME` if set): the seed, then each action with the time it happened and who chose it (you, auto-explore or the bot), plus a line for each new floor. A recording is a small text file, written as you play, so nothing is lost if the game is closed mid-run. `--no-record` turns it off.
 
 A seed and its actions decide a run, so a recording plays back exactly:
 
@@ -171,7 +171,7 @@ Your pack holds 26 items. Potions and scrolls of the same kind stack, and each i
 
 **Score.** A run scores 1,000 points for each floor reached, plus the experience it earned, plus 1,000 for each artifact found. Depth is most of it: one floor deeper is worth more than a floor's worth of fighting, so experience mostly decides between runs that died at about the same depth. The score shows in the sidebar as you play.
 
-**High scores** keep the ten best runs, ranked by score, then fewer turns. They are saved in `~/.local/share/smallrogue/highscores.tsv` (or under `$XDG_DATA_HOME`), with each run's score, depth, level, experience, turns, kills, time played, how it ended and the date. The list from before scores, ranked by depth alone, is left as it was in `scores.tsv` in the same folder. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute. Settings, so far just auto pickup, are saved next to the scores in `settings.txt`.
+**High scores** keep the ten best runs, ranked by score, then fewer turns. They are saved in `highscores.tsv` in the data folder, with each run's score, depth, level, experience, turns, kills, time played, how it ended and the date. The list from before scores, ranked by depth alone, is left as it was in `scores.tsv` in the same folder. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute. Settings, so far just auto pickup, are saved next to the scores in `settings.txt`.
 
 ## Development
 

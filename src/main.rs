@@ -157,7 +157,7 @@ fn record_score(
         return (
             Vec::new(),
             None,
-            Some("No home directory to keep scores in.".to_string()),
+            Some("No data folder to keep scores in.".to_string()),
         );
     };
     let mut list = match scores::load(&path) {
@@ -288,7 +288,7 @@ fn watch_replay(terminal: &mut Terminal, recording: &record::Recording) -> io::R
 fn start_recording(game: &mut Game) -> Option<Recorder> {
     let started = match record::default_dir() {
         Some(dir) => Recorder::start(&dir, game.seed),
-        None => Err(io::Error::other("no home directory")),
+        None => Err(io::Error::other("no data folder")),
     };
     match started {
         Ok(recorder) => {
@@ -444,7 +444,7 @@ fn show_scores(terminal: &mut Terminal) -> io::Result<()> {
         Some(Err(e)) => (Vec::new(), Some(format!("Couldn't read the scores: {e}"))),
         None => (
             Vec::new(),
-            Some("No home directory to keep scores in.".to_string()),
+            Some("No data folder to keep scores in.".to_string()),
         ),
     };
     let board = ui::Board {

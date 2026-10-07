@@ -19,8 +19,7 @@ impl Default for Settings {
 }
 
 pub fn default_path() -> Option<PathBuf> {
-    let scores = crate::scores::default_path()?;
-    Some(scores.parent()?.join("settings.txt"))
+    Some(crate::scores::data_dir()?.join("settings.txt"))
 }
 
 /// The saved settings, or the defaults if there are none.

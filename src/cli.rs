@@ -12,7 +12,8 @@ usage: smallrogue [--seed N] [--bot] [--no-record]
                     first seed of the batch, default 1)
   --bot             let the bot play; press Escape or B to take over
   --no-record       don't save a recording of the run (runs are
-                    recorded in ~/.local/share/smallrogue/recordings)
+                    recorded in the data folder: ~/.local/share/smallrogue,
+                    or %APPDATA%\\smallrogue on Windows)
   --replay FILE     watch a recorded run; space pauses, + and - set
                     the speed, any other key stops
   --analyze [PATH]  report on recorded runs: pace, deaths, and how

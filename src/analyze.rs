@@ -79,7 +79,7 @@ impl Tally {
 pub fn analyze(path: Option<&Path>) -> Result<String, String> {
     let path = match path {
         Some(p) => p.to_path_buf(),
-        None => record::default_dir().ok_or("no home directory to find recordings in")?,
+        None => record::default_dir().ok_or("no data folder to find recordings in")?,
     };
     let files = recording_files(&path)?;
     if files.is_empty() {

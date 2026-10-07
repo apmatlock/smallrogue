@@ -2,8 +2,9 @@
 //! text file between games. Runs rank by points (see `points`); at
 //! equal points, the run that got there in fewer turns ranks higher.
 //!
-//! The file lives at `$XDG_DATA_HOME/smallrogue/highscores.tsv`, or
-//! `~/.local/share/smallrogue/highscores.tsv`. One run per line, fields
+//! The file is `highscores.tsv` in the data folder (see `data_dir`):
+//! `~/.local/share/smallrogue`, or `%APPDATA%\smallrogue` on Windows.
+//! One run per line, fields
 //! separated by tabs, the cause of death last since it is free text.
 //! The list from before points, ranked by depth alone, is left as it
 //! was in `scores.tsv` next to it.
@@ -129,13 +130,33 @@ impl Score {
     }
 }
 
-/// Where the list is kept, if a home directory can be found.
+/// Where the list is kept, if a data folder can be found.
 pub fn default_path() -> Option<PathBuf> {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
+    Some(data_dir()?.join("highscores.tsv"))
+}
+
+/// The folder for high scores, settings and recordings, if one can be
+/// found. `$XDG_DATA_HOME` wins when set. Windows then uses `%APPDATA%`,
+/// its usual place for app data; it usually has no `HOME`, and Git Bash
+/// sets one, so checking `%APPDATA%` first keeps every shell saving to
+/// the same place. Elsewhere it's `~/.local/share`.
+pub fn data_dir() -> Option<PathBuf> {
+    let var = |name| std::env::var_os(name).map(PathBuf::from);
+    let appdata = var("APPDATA").filter(|_| cfg!(windows));
+    data_dir_from(var("XDG_DATA_HOME"), appdata, var("HOME"))
+}
+
+/// `data_dir` from the variables it reads, so tests can try each case.
+fn data_dir_from(
+    xdg_data_home: Option<PathBuf>,
+    appdata: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let base = xdg_data_home
         .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(data.join("smallrogue").join("highscores.tsv"))
+        .or(appdata.filter(|p| p.is_absolute()))
+        .or_else(|| home.map(|h| h.join(".local/share")))?;
+    Some(base.join("smallrogue"))
 }
 
 /// Reads the list. A missing file is an empty list; lines that can't
@@ -299,6 +320,33 @@ mod tests {
         // A line from the old depth-only list isn't mistaken for one.
         let old = "9\t12\t4000\t80\t7\t2026-09-29\t600\ta troll";
         assert_eq!(Score::from_line(old), None);
+    }
+
+    #[test]
+    fn the_data_folder_follows_xdg_then_appdata_then_home() {
+        let abs = |name: &str| std::env::temp_dir().join(name);
+        let some = |name: &str| Some(abs(name));
+        let dir = |xdg, appdata, home| data_dir_from(xdg, appdata, home);
+        assert_eq!(
+            dir(some("xdg"), some("appdata"), some("home")),
+            some("xdg").map(|p| p.join("smallrogue")),
+            "XDG_DATA_HOME wins"
+        );
+        assert_eq!(
+            dir(None, some("appdata"), some("home")),
+            some("appdata").map(|p| p.join("smallrogue")),
+            "APPDATA before HOME, so Git Bash and PowerShell agree"
+        );
+        assert_eq!(
+            dir(None, None, some("home")),
+            some("home").map(|p| p.join(".local/share").join("smallrogue"))
+        );
+        // Relative paths are ignored rather than trusted.
+        assert_eq!(
+            dir(Some("rel".into()), Some("rel".into()), some("home")),
+            some("home").map(|p| p.join(".local/share").join("smallrogue"))
+        );
+        assert_eq!(dir(None, None, None), None);
     }
 
     #[test]
