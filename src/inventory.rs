@@ -59,6 +59,8 @@ impl Game {
         }
     }
 
+    /// Picks up the item underfoot. An artifact counts towards the score
+    /// the first time it's picked up.
     pub(crate) fn pick_up(&mut self) -> Outcome {
         let pos = self.player.pos;
         let Some(index) = self.items.iter().position(|i| i.pos == pos) else {
@@ -67,9 +69,16 @@ impl Game {
         };
         let item = self.items.remove(index).item;
         let name = self.lore.with_article(&item);
+        let kind = item.kind;
         match self.player.add_item(item) {
             Ok(letter) => {
                 self.stats.items_picked_up += 1;
+                if let ItemKind::Weapon(w) = kind
+                    && w.is_artifact()
+                    && !self.stats.artifacts_found.contains(&w)
+                {
+                    self.stats.artifacts_found.push(w);
+                }
                 self.log(&format!("You pick up {name} ({letter})."));
                 if let Some(hint) = self.gear_hint(letter) {
                     self.log_as(&hint, MsgKind::Good);
@@ -542,6 +551,27 @@ mod tests {
         assert_eq!(last_log(&game), "There is already something here.");
         game.apply(Action::PickUp);
         assert_eq!(game.lore.name(game.player.item('a').unwrap()), "+0 sword");
+    }
+
+    #[test]
+    fn an_artifact_scores_once_however_often_it_is_picked_up() {
+        let mut game = room_game();
+        let before = game.score();
+        pick_up_new(&mut game, ItemKind::Weapon(WeaponKind::Axe));
+        assert_eq!(game.score(), before, "plain gear scores nothing");
+        pick_up_new(&mut game, ItemKind::Weapon(WeaponKind::Sunsteel));
+        assert_eq!(game.score(), before + crate::scores::POINTS_PER_ARTIFACT);
+        // Dropped and picked up again, it still counts once.
+        let letter = game
+            .player
+            .inventory
+            .iter()
+            .find(|i| i.kind == ItemKind::Weapon(WeaponKind::Sunsteel))
+            .unwrap()
+            .letter;
+        game.apply(Action::Drop(letter));
+        game.apply(Action::PickUp);
+        assert_eq!(game.score(), before + crate::scores::POINTS_PER_ARTIFACT);
     }
 
     #[test]

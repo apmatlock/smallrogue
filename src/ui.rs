@@ -131,10 +131,10 @@ pub fn draw_title(best: Option<&Score>, width: u16, height: u16) -> Frame {
     let mut frame = Frame::new(width, height);
     let best_line = match best {
         Some(s) => format!(
-            "Best run: depth {}, ended by {} ({})",
-            s.depth, s.killer, s.date
+            "Best run: {} points, depth {}, ended by {} ({})",
+            s.points, s.depth, s.killer, s.date
         ),
-        None => "No runs yet. Depth is your score.".to_string(),
+        None => "No runs yet. Go deep: depth is most of your score.".to_string(),
     };
     let lines: [(&str, Rgb); 10] = [
         ("S M A L L R O G U E", TITLE),
@@ -412,7 +412,8 @@ pub fn help_lines() -> Vec<Line> {
     lines.push(heading("How to play"));
     lines.extend(
         [
-            "Go as deep as you can: depth is your score.",
+            "Go as deep as you can. Score: 1000 per floor,",
+            "plus experience, plus 1000 per artifact found.",
             "Every six floors the dungeon changes: the Crypts,",
             "the Flooded Halls, then the Deep Warrens. After",
             "that it starts over, and is deadlier each time.",
@@ -757,7 +758,8 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         &format!("Level {}  XP {}/{next}", p.level, p.xp),
         TEXT,
     );
-    frame.print(x, 7, &format!("Seed {}", game.seed), TEXT_DIM);
+    frame.print(x, 7, &format!("Score {}", game.score()), TEXT);
+    frame.print(x, 8, &format!("Seed {}", game.seed), TEXT_DIM);
     // Equipment: weapon, armor, then rings, one line each.
     let gear: Vec<&Item> = p
         .weapon()
@@ -766,7 +768,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
         .chain(p.rings())
         .collect();
     for (i, item) in gear.iter().enumerate() {
-        let y = 8 + i as i32;
+        let y = 9 + i as i32;
         frame.set(
             x,
             y,
@@ -783,7 +785,7 @@ fn draw_sidebar(frame: &mut Frame, game: &Game, x: i32, height: i32) {
     let keys = ["?  all keys", "i  inventory"];
     // On short terminals the hints would cover the status above, which
     // matters more, so they are left out.
-    let list_top = 9 + gear.len() as i32;
+    let list_top = 10 + gear.len() as i32;
     let keys_top = height - keys.len() as i32;
     let show_keys = keys_top >= list_top;
     if show_keys {
@@ -930,6 +932,7 @@ pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame 
         ),
         (String::new(), TEXT),
         (cause, TEXT),
+        (score_line(game, w), GOOD),
         (
             format!(
                 "Character level {}, seed {}, time {}.",
@@ -988,6 +991,33 @@ pub fn draw_death(game: &Game, board: &Board, width: u16, height: u16) -> Frame 
         y += 1;
     }
     frame
+}
+
+/// The score and what it's made of, e.g. "Score 25762: 20000 for
+/// depth 20, 4762 experience, 1000 for Sunsteel.", or just the score
+/// when that won't fit in `width`.
+fn score_line(game: &Game, width: i32) -> String {
+    let mut parts = vec![
+        format!(
+            "{} for depth {}",
+            crate::scores::POINTS_PER_FLOOR * u64::from(game.depth),
+            game.depth
+        ),
+        format!("{} experience", game.player.xp),
+    ];
+    for &w in &game.stats.artifacts_found {
+        parts.push(format!(
+            "{} for {}",
+            crate::scores::POINTS_PER_ARTIFACT,
+            w.stats().name
+        ));
+    }
+    let full = format!("Score {}: {}.", game.score(), parts.join(", "));
+    if full.chars().count() as i32 <= width {
+        full
+    } else {
+        format!("Score {}.", game.score())
+    }
 }
 
 /// The run in numbers, most interesting first, in at most `lines`.
@@ -1058,29 +1088,30 @@ fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
         block.push(("No runs recorded yet.".to_string(), TEXT_DIM));
         return block;
     }
-    // The wide row is 58 columns plus the cause of death.
+    // The wide row is 73 columns with the cause of death cut to 16.
     let wide = width >= 76;
     let ended_w = if wide {
         16
     } else {
         (width as usize).saturating_sub(34).clamp(8, 20)
     };
-    // Columns: mark, place, depth, level, turns, kills, time, how the
-    // run ended, date. Narrow screens keep the first five and the end.
+    // Columns: mark, place, score, depth, level, turns, time, how the
+    // run ended, date. Narrow screens keep score, depth, level and the
+    // end. Kills are left out: experience in the score covers them.
     let row = |c: [&str; 9]| {
-        let [mark, place, depth, level, turns, kills, time, ended, date] = c;
+        let [mark, place, score, depth, level, turns, time, ended, date] = c;
         let ended: String = ended.chars().take(ended_w).collect();
         if wide {
             format!(
-                "{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {kills:>5}  {time:>7}  {ended:<ended_w$}  {date}"
+                "{mark}{place:>2}  {score:>6}  {depth:>5}  {level:>5}  {turns:>6}  {time:>7}  {ended:<ended_w$}  {date}"
             )
         } else {
-            format!("{mark}{place:>2}  {depth:>5}  {level:>5}  {turns:>6}  {ended}")
+            format!("{mark}{place:>2}  {score:>6}  {depth:>5}  {level:>5}  {ended}")
         }
     };
     block.push((
         row([
-            "  ", "#", "Depth", "Level", "Turns", "Kills", "Time", "Ended by", "Date",
+            "  ", "#", "Score", "Depth", "Level", "Turns", "Time", "Ended by", "Date",
         ]),
         TEXT_DIM,
     ));
@@ -1090,18 +1121,14 @@ fn death_scores(board: &Board, width: i32, lines: usize) -> Block {
         .enumerate()
         .map(|(i, s)| {
             let this = board.this_run == Some(i);
-            // Runs saved before time was kept have none.
-            let time = match s.seconds {
-                0 => "-".to_string(),
-                t => crate::stats::format_duration(t),
-            };
+            let time = crate::stats::format_duration(s.seconds);
             let line = row([
                 if this { "> " } else { "  " },
                 &(i + 1).to_string(),
+                &s.points.to_string(),
                 &s.depth.to_string(),
                 &s.level.to_string(),
                 &s.turns.to_string(),
-                &s.kills.to_string(),
                 &time,
                 &s.killer,
                 &s.date,
@@ -1240,8 +1267,12 @@ mod tests {
             assert!(row_text(&frame, 3).contains("Food 1800"), "height {height}");
             assert!(row_text(&frame, 5).contains("Depth 1"), "height {height}");
             assert!(row_text(&frame, 6).contains("Level 1"), "height {height}");
-            assert!(row_text(&frame, 7).contains("Seed 1"), "height {height}");
-            assert!(row_text(&frame, 8).contains("sword"), "height {height}");
+            assert!(
+                row_text(&frame, 7).contains("Score 1000"),
+                "height {height}"
+            );
+            assert!(row_text(&frame, 8).contains("Seed 1"), "height {height}");
+            assert!(row_text(&frame, 9).contains("sword"), "height {height}");
         }
     }
 
@@ -1420,8 +1451,10 @@ mod tests {
         game.stats.misses = 1;
         let scores = (0..10)
             .map(|i| Score {
+                points: crate::scores::points(20 - i, 500, 0),
                 depth: 20 - i,
                 level: 10,
+                xp: 500,
                 turns: 1000,
                 kills: 50,
                 seed: i as u64,
@@ -1453,7 +1486,32 @@ mod tests {
         assert!(text.contains("Accuracy") && text.contains("75%"));
         assert!(text.contains("High scores"));
         assert!(text.contains(">  8"), "this run is marked\n{text}");
+        assert!(text.contains("Score") && text.contains("13500"), "{text}");
         assert!(text.contains("Press any key"));
+    }
+
+    #[test]
+    fn the_death_screen_explains_the_score() {
+        let (mut game, scores) = death_fixture();
+        game.depth = 20;
+        game.player.xp = 4762;
+        game.stats
+            .artifacts_found
+            .push(crate::item::WeaponKind::Sunsteel);
+        let board = Board {
+            scores: &scores,
+            this_run: None,
+            note: None,
+        };
+        let text = screen_text(&draw_death(&game, &board, 80, 30)).join("\n");
+        assert!(
+            text.contains("Score 25762: 20000 for depth 20, 4762 experience, 1000 for Sunsteel."),
+            "{text}"
+        );
+        // Too narrow for the breakdown: just the score, never cut short.
+        let narrow = screen_text(&draw_death(&game, &board, MIN_WIDTH, 30)).join("\n");
+        assert!(narrow.contains("Score 25762."), "{narrow}");
+        assert!(!narrow.contains("for depth"));
     }
 
     #[test]
@@ -1468,7 +1526,7 @@ mod tests {
         ] {
             assert!(text.contains(needle), "missing {needle}");
         }
-        assert!(text.contains("Best run: depth 20, ended by an orc"));
+        assert!(text.contains("Best run: 20500 points, depth 20, ended by an orc"));
         let empty = screen_text(&draw_title(None, MIN_WIDTH, MIN_HEIGHT)).join("\n");
         assert!(empty.contains("No runs yet."));
     }

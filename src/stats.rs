@@ -3,6 +3,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::item::WeaponKind;
+
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
     /// Kills by monster name.
@@ -17,6 +19,9 @@ pub struct Stats {
     pub trapdoor_falls: u32,
     pub traps_sprung: u32,
     pub items_picked_up: u32,
+    /// Artifacts picked up, each counted once even if lost and found
+    /// again.
+    pub artifacts_found: Vec<WeaponKind>,
     pub potions_drunk: u32,
     pub scrolls_read: u32,
     pub meals_eaten: u32,

@@ -1,14 +1,14 @@
 # smallrogue — Design and Build Plan
 
 A grim, fast, endless fantasy dungeon crawl for the terminal, written in Rust.
-Runs last 10–20 minutes. You die eventually; how deep you got is your score.
+You die eventually; how deep you got is most of your score.
 
 ## Design pillars
 
-1. **Short, sharp runs.** Every floor should take a minute or two. Difficulty ramps quickly.
+1. **Sharp, not short.** No set run length: a good run lasts as long as it lasts. Every floor should be a bit more dangerous than the one before.
 2. **Readable.** Clean Brogue-style interface. The player should always understand what happened and why.
 3. **Grim atmosphere.** Serious tone, real danger, NetHack's classic ASCII feel without its complexity.
-4. **Light on the machine.** Runs well on a 2-core Celeron with little free RAM. Few dependencies, fast rebuilds.
+4. **Reasonably light.** Few dependencies, fast rebuilds, modest needs. Written for a 2-core Celeron; since 2026-10-07 that machine no longer rules out features such as a tile renderer.
 5. **Built to grow.** Start small, but make adding zones, monsters, items and backgrounds cheap.
 
 ## Decisions so far
@@ -16,7 +16,7 @@ Runs last 10–20 minutes. You die eventually; how deep you got is your score.
 | Area | Decision |
 |---|---|
 | Setting | Classic fantasy dungeon, serious and grim, no story |
-| Goal | Descend as deep as possible. Depth reached is the score |
+| Goal | Descend as deep as possible. The score is mostly depth, plus experience and artifacts found (see "Goals revisited") |
 | Depth | Endless |
 | Dungeon | Classic rooms and corridors |
 | Themes | Zones cover bands of floors, with special themed rooms inside them |
@@ -287,6 +287,17 @@ Measured in batches of 10,000 runs on fresh seeds 10001-20000. Small batches mis
 - **Frost giants arriving on floor 21 instead of 19** eased 19-20 but moved the wall to 25-26 (floor 26: 31% to 46%). They were still new when the Flooded Halls came round again, where they are at home, on the floor demons arrive. Dropped.
 - **Kept: wraiths at speed 125, down from 150.** Still faster than the player, but they get an extra action every fourth turn rather than every other one, so they hit less often. Death rate on floor 19 went from 18.0% to 15.3%, floor 20 from 19.5% to 15.8%, floor 21 from 14.8% to 11.4%. Floors 1-15 are unchanged, and the character is the same level at the same depth. Wraith deaths fell from 1,416 to 967; median depth went from 19 to 20, average from 18.7 to 19.1. Recordings with wraiths in them no longer replay exactly.
 - **Vampires then led, at a third of deaths on floors 19-23.** Three changes tested one at a time all helped by about as much, with the character the same level at the same depth: no regeneration (floor 19 15.3% to 13.4%, vampire deaths 1,235 to 988), damage 4-10 to 3-8 (13.0%, 987), and armor 2 to 0 (13.6%, 1,050, with floors 26-27 a little worse). **Kept: damage 3-8.** It changes the monster least: vampires still regenerate and drink blood, so Sunsteel's burn keeps its use against them. Floor 20 15.8% to 14.0%, floor 21 11.4% to 9.8%; median depth 20, average 19.1 to 19.3. Combining two changes is untested; whether it would smooth the curve further (the aim since 2026-10-03, not a target depth) is still open.
+- **Floor 18 dips** (about 4%, against 7% on 16-17): a spawn count over 2,000 seeds shows bulettes, new since floor 12, fall from about 2 a floor to 0.7 when they stop being new, one floor before the Warrens end. Oni spawn as often as on 17; they kill less only for lack of bulettes beside them. Bulettes from floor 13 lifted floor 18 to 5.2% but dropped floor 12 below floor 11 (2.1%); keeping every monster new for 7 floors instead of 6 lifted it to 5.0% but brought back the frost-giant spike at 25 (27%). Neither kept. Each step in a monster's weight (3 times on arrival, back to 1 six floors later) lands on some floor as a spike or a dip, so the next idea is a bonus that fades over several floors. The same count showed Crypts floors have about 450 walkable tiles against about 770 in the Warrens, with the same 17 monsters: part of why floor 19 is a step.
+
+### Goals revisited (2026-10-07)
+
+Decided with the user, one question at a time:
+
+- **No run length goal.** Depth is what counts, and good runs can be long. The opening line and the first pillar no longer promise 10-20 minutes.
+- **Balance is tuned on the bot**, as a stand-in: a smooth death rate per floor for the bot is the measure, even though people die shallower.
+- **Run variety is fine as it is.** Surviving the grind is the game; seeds and luck make runs differ. No signature mechanic is planned.
+- **"Light on the machine" is relaxed**: keep the game reasonably light, but the old 2-core laptop no longer blocks features.
+- **A points score.** Score = 1,000 × depth + experience earned + 1,000 per artifact found (each counted once). Depth dominates: from 2,000 bot runs (seeds 30001-32000), experience per floor is about 6 on floor 1, 100 on floor 9, 450 on floors 16-18 and 550-690 from floor 19 on, so a floor deeper always outweighs a typical floor's fighting, and experience decides between runs that died about as deep. An artifact is worth one floor. Shown live in the sidebar, explained on the death screen ("Score 25762: 20000 for depth 20, 4762 experience, 1000 for Sunsteel."), and on the title screen. The high score list ranks by score, then fewer turns, in a fresh file, `highscores.tsv`; the old depth-ranked `scores.tsv` is left as it was. The score table drops the Kills column to fit 76 columns. Balance runs don't report points: balance stays judged by depth.
 
 ## Later
 
@@ -297,5 +308,4 @@ Measured in batches of 10,000 runs on fresh seeds 10001-20000. Small batches mis
 - More backgrounds: rogue, mage (brings magic, spells and wands), ranger
 - Species
 - More zones, monsters, items and themed rooms
-- A signature mechanic, once play shows what is fun
 - A tile renderer

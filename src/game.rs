@@ -777,6 +777,11 @@ impl Game {
         self.death = Some(killer.to_string());
     }
 
+    /// The run's score so far: depth, experience and artifacts found.
+    pub fn score(&self) -> u64 {
+        crate::scores::points(self.depth, self.player.xp, self.stats.artifacts_found.len())
+    }
+
     /// One sentence summing up the death, or `None` while alive. Built
     /// when asked rather than at the moment of death, so the turn
     /// count includes the fatal turn.

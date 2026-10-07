@@ -1,10 +1,12 @@
-//! The high score list: the best runs, kept in a small text file
-//! between games. Depth is the score; at equal depth, the run that got
-//! there in fewer turns ranks higher.
+//! The score and the high score list: the best runs, kept in a small
+//! text file between games. Runs rank by points (see `points`); at
+//! equal points, the run that got there in fewer turns ranks higher.
 //!
-//! The file lives at `$XDG_DATA_HOME/smallrogue/scores.tsv`, or
-//! `~/.local/share/smallrogue/scores.tsv`. One run per line, fields
+//! The file lives at `$XDG_DATA_HOME/smallrogue/highscores.tsv`, or
+//! `~/.local/share/smallrogue/highscores.tsv`. One run per line, fields
 //! separated by tabs, the cause of death last since it is free text.
+//! The list from before points, ranked by depth alone, is left as it
+//! was in `scores.tsv` next to it.
 
 use std::cmp::Ordering;
 use std::io;
@@ -16,19 +18,35 @@ use crate::game::Game;
 /// How many runs the list keeps.
 pub const KEEP: usize = 10;
 
+/// Points for each floor reached. A deep floor yields about 650
+/// experience to the bot, so a floor is worth a little more than a
+/// floor's fighting: depth decides the ranking, and experience breaks
+/// near-ties between runs that died at about the same depth.
+pub const POINTS_PER_FLOOR: u64 = 1000;
+/// Points for each artifact picked up: about one floor.
+pub const POINTS_PER_ARTIFACT: u64 = 1000;
+
+/// A run's score: its depth, experience earned and artifacts found.
+pub fn points(depth: u32, xp: u32, artifacts: usize) -> u64 {
+    POINTS_PER_FLOOR * u64::from(depth) + u64::from(xp) + POINTS_PER_ARTIFACT * artifacts as u64
+}
+
 const HEADER: &str =
-    "# smallrogue high scores v2: depth level turns kills seed date seconds killer";
+    "# smallrogue high scores v3: points depth level xp turns kills seed date seconds killer";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Score {
+    pub points: u64,
     pub depth: u32,
     pub level: u32,
+    /// Experience earned over the run.
+    pub xp: u32,
     pub turns: u64,
     pub kills: u32,
     pub seed: u64,
     /// The day the run ended, as YYYY-MM-DD.
     pub date: String,
-    /// Real time played (0 for runs saved before this was kept).
+    /// Real time played.
     pub seconds: u64,
     /// What ended the run, e.g. "a troll".
     pub killer: String,
@@ -37,8 +55,10 @@ pub struct Score {
 impl Score {
     pub fn from_game(game: &Game, date: String) -> Self {
         Self {
+            points: game.score(),
             depth: game.depth,
             level: game.player.level,
+            xp: game.player.xp,
             turns: game.turn,
             kills: game.stats.total_kills(),
             seed: game.seed,
@@ -51,8 +71,8 @@ impl Score {
     /// Better runs sort first.
     fn rank(&self, other: &Self) -> Ordering {
         other
-            .depth
-            .cmp(&self.depth)
+            .points
+            .cmp(&self.points)
             .then(self.turns.cmp(&other.turns))
     }
 
@@ -64,29 +84,46 @@ impl Score {
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{killer}",
-            self.depth, self.level, self.turns, self.kills, self.seed, self.date, self.seconds
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{killer}",
+            self.points,
+            self.depth,
+            self.level,
+            self.xp,
+            self.turns,
+            self.kills,
+            self.seed,
+            self.date,
+            self.seconds
         )
     }
 
-    /// Reads a line in either format: version 1 had no time played.
-    /// The killer never holds a tab, so the field count tells them
-    /// apart.
     fn from_line(line: &str) -> Option<Self> {
         let fields: Vec<&str> = line.split('\t').collect();
-        let (seconds, killer) = match fields.len() {
-            7 => (0, fields[6]),
-            8 => (fields[6].parse().ok()?, fields[7]),
-            _ => return None,
+        let [
+            points,
+            depth,
+            level,
+            xp,
+            turns,
+            kills,
+            seed,
+            date,
+            seconds,
+            killer,
+        ] = fields[..]
+        else {
+            return None;
         };
         Some(Self {
-            depth: fields[0].parse().ok()?,
-            level: fields[1].parse().ok()?,
-            turns: fields[2].parse().ok()?,
-            kills: fields[3].parse().ok()?,
-            seed: fields[4].parse().ok()?,
-            date: fields[5].to_string(),
-            seconds,
+            points: points.parse().ok()?,
+            depth: depth.parse().ok()?,
+            level: level.parse().ok()?,
+            xp: xp.parse().ok()?,
+            turns: turns.parse().ok()?,
+            kills: kills.parse().ok()?,
+            seed: seed.parse().ok()?,
+            date: date.to_string(),
+            seconds: seconds.parse().ok()?,
             killer: killer.to_string(),
         })
     }
@@ -98,7 +135,7 @@ pub fn default_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(data.join("smallrogue").join("scores.tsv"))
+    Some(data.join("smallrogue").join("highscores.tsv"))
 }
 
 /// Reads the list. A missing file is an empty list; lines that can't
@@ -179,10 +216,13 @@ pub(crate) fn date_from_days(days: i64) -> String {
 mod tests {
     use super::*;
 
-    fn score(depth: u32, turns: u64) -> Score {
+    /// A run that reached `depth` with `xp` experience, after `turns`.
+    fn score(depth: u32, xp: u32, turns: u64) -> Score {
         Score {
+            points: points(depth, xp, 0),
             depth,
             level: 1,
+            xp,
             turns,
             kills: 0,
             seed: 7,
@@ -193,35 +233,47 @@ mod tests {
     }
 
     #[test]
-    fn old_lines_without_a_time_still_load() {
-        let old = Score::from_line("9\t12\t4000\t80\t7\t2026-09-29\ta troll").unwrap();
-        assert_eq!(
-            (old.depth, old.seconds, old.killer.as_str()),
-            (9, 0, "a troll")
-        );
-        let new = Score::from_line(&score(9, 4000).to_line()).unwrap();
-        assert_eq!(new.seconds, 600);
+    fn points_add_depth_experience_and_artifacts() {
+        assert_eq!(points(1, 0, 0), 1000);
+        assert_eq!(points(20, 4762, 1), 20_000 + 4762 + 1000);
+        // A floor deeper outranks a floor's worth of fighting.
+        assert!(points(21, 4000, 0) > points(20, 4650, 0));
     }
 
     #[test]
-    fn deeper_ranks_higher_then_fewer_turns() {
+    fn more_points_rank_higher_then_fewer_turns() {
         let mut list = Vec::new();
-        assert_eq!(insert(&mut list, score(5, 900)), Some(0));
-        assert_eq!(insert(&mut list, score(9, 2000)), Some(0));
-        assert_eq!(insert(&mut list, score(5, 500)), Some(1));
-        assert_eq!(insert(&mut list, score(5, 500)), Some(2), "ties go below");
-        let depths: Vec<_> = list.iter().map(|s| (s.depth, s.turns)).collect();
-        assert_eq!(depths, [(9, 2000), (5, 500), (5, 500), (5, 900)]);
+        assert_eq!(insert(&mut list, score(5, 100, 900)), Some(0));
+        assert_eq!(insert(&mut list, score(9, 400, 2000)), Some(0));
+        assert_eq!(insert(&mut list, score(5, 100, 500)), Some(1));
+        assert_eq!(
+            insert(&mut list, score(5, 100, 500)),
+            Some(2),
+            "ties go below"
+        );
+        // At the same depth, more experience wins whatever the turns.
+        assert_eq!(insert(&mut list, score(5, 300, 3000)), Some(1));
+        let rows: Vec<_> = list.iter().map(|s| (s.depth, s.xp, s.turns)).collect();
+        assert_eq!(
+            rows,
+            [
+                (9, 400, 2000),
+                (5, 300, 3000),
+                (5, 100, 500),
+                (5, 100, 500),
+                (5, 100, 900)
+            ]
+        );
     }
 
     #[test]
     fn only_the_best_are_kept() {
         let mut list = Vec::new();
         for depth in 1..=KEEP as u32 {
-            insert(&mut list, score(depth + 10, 100));
+            insert(&mut list, score(depth + 10, 0, 100));
         }
-        assert_eq!(insert(&mut list, score(1, 100)), None);
-        assert_eq!(insert(&mut list, score(30, 100)), Some(0));
+        assert_eq!(insert(&mut list, score(1, 0, 100)), None);
+        assert_eq!(insert(&mut list, score(30, 0, 100)), Some(0));
         assert_eq!(list.len(), KEEP);
         assert_eq!(list.last().unwrap().depth, 12, "the worst fell off");
     }
@@ -229,12 +281,12 @@ mod tests {
     #[test]
     fn scores_survive_a_save_and_load() {
         let dir = std::env::temp_dir().join(format!("smallrogue-test-{}", std::process::id()));
-        let path = dir.join("scores.tsv");
-        let mut list = vec![score(3, 300), score(8, 800)];
+        let path = dir.join("highscores.tsv");
+        let mut list = vec![score(3, 20, 300), score(8, 300, 800)];
         list[0].killer = "a\ttricky\nname".to_string();
         save(&path, &list).unwrap();
         let loaded = load(&path).unwrap();
-        assert_eq!(loaded[0].depth, 8, "sorted on load");
+        assert_eq!(loaded[0], list[1], "sorted on load, every field kept");
         assert_eq!(loaded[1].killer, "a tricky name");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -244,6 +296,17 @@ mod tests {
         let path = std::env::temp_dir().join("smallrogue-no-such-scores.tsv");
         assert_eq!(load(&path).unwrap(), Vec::new());
         assert_eq!(Score::from_line("not\ta\tscore"), None);
+        // A line from the old depth-only list isn't mistaken for one.
+        let old = "9\t12\t4000\t80\t7\t2026-09-29\t600\ta troll";
+        assert_eq!(Score::from_line(old), None);
+    }
+
+    #[test]
+    fn the_new_list_has_its_own_file() {
+        // The old depth-ranked list in scores.tsv is left alone.
+        if let Some(path) = default_path() {
+            assert_eq!(path.file_name().unwrap(), "highscores.tsv");
+        }
     }
 
     #[test]

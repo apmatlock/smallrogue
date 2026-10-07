@@ -1,6 +1,6 @@
 # smallrogue
 
-A grim, fast, endless dungeon crawler for the terminal, written in Rust. Descend through randomly generated rooms and corridors, fight what lives there, and use what you find. There is no bottom: how deep you get is your score.
+A grim, fast, endless dungeon crawler for the terminal, written in Rust. Descend through randomly generated rooms and corridors, fight what lives there, and use what you find. There is no bottom: how deep you get is most of your score.
 
 The dungeon passes through three themed zones, the Crypts, the Flooded Halls and the Deep Warrens, then starts over, deadlier each time. Thirty-one kinds of monster, many with special powers, items to identify, character growth, hunger, traps and a high score list are all in. A built-in bot can play for you, and every run you play is recorded so it can be replayed or analyzed.
 
@@ -127,7 +127,7 @@ Moving, attacking, waiting, opening or closing a door, descending, and using an 
 
 Walls and closed doors block sight. What you can see is drawn in full color. Places you have explored stay on screen in cold, dim colors, along with the items lying there. Monsters are only shown while in sight. Look (`L`) names everything in view and says what makes each monster dangerous.
 
-The sidebar shows the zone you're in, your health, food, attributes, depth, turn, seed and equipment, then every monster in view with a health bar and whether it is asleep, wandering or hunting. The log at the bottom reports what happens, with damage you take in red and kills in green; `m` scrolls back through it. The log also gives hints: below half health it names the healing you know and its pack letter, and when you pick up armor that looks more protective, or an unknown ring with a finger free, it says so.
+The sidebar shows the zone you're in, your health, food, attributes, depth, turn, score, seed and equipment, then every monster in view with a health bar and whether it is asleep, wandering or hunting. The log at the bottom reports what happens, with damage you take in red and kills in green; `m` scrolls back through it. The log also gives hints: below half health it names the healing you know and its pack letter, and when you pick up armor that looks more protective, or an unknown ring with a finger free, it says so.
 
 ## How it plays
 
@@ -167,9 +167,11 @@ The sidebar shows the zone you're in, your health, food, attributes, depth, turn
 
 Your pack holds 26 items. Potions and scrolls of the same kind stack, and each item keeps its letter while you carry it.
 
-**The end of a run.** When you die or give up, the death screen shows how the run ended, your character level, the seed and the time played, then the run in numbers: monsters slain and which kind most often, the toughest foe you killed, accuracy, damage dealt and taken, stairs and trapdoors, and what you picked up and used. Below that is the high score list with your run marked.
+**The end of a run.** When you die or give up, the death screen shows how the run ended, your score and what it's made of, your character level, the seed and the time played, then the run in numbers: monsters slain and which kind most often, the toughest foe you killed, accuracy, damage dealt and taken, stairs and trapdoors, and what you picked up and used. Below that is the high score list with your run marked.
 
-**High scores** keep the ten best runs, ranked by depth reached, then fewer turns. They are saved in `~/.local/share/smallrogue/scores.tsv` (or under `$XDG_DATA_HOME`), with each run's level, turns, kills, time played, how it ended and the date. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute. Settings, so far just auto pickup, are saved next to the scores in `settings.txt`.
+**Score.** A run scores 1,000 points for each floor reached, plus the experience it earned, plus 1,000 for each artifact found. Depth is most of it: one floor deeper is worth more than a floor's worth of fighting, so experience mostly decides between runs that died at about the same depth. The score shows in the sidebar as you play.
+
+**High scores** keep the ten best runs, ranked by score, then fewer turns. They are saved in `~/.local/share/smallrogue/highscores.tsv` (or under `$XDG_DATA_HOME`), with each run's score, depth, level, experience, turns, kills, time played, how it ended and the date. The list from before scores, ranked by depth alone, is left as it was in `scores.tsv` in the same folder. Giving up counts as an ending, so it can't keep a bad run off the list. Time played only counts while you're playing: any gap of more than a minute between moves counts as a minute. Settings, so far just auto pickup, are saved next to the scores in `settings.txt`.
 
 ## Development
 
@@ -192,7 +194,7 @@ The code uses plain structs and grids, with game rules kept separate from termin
 | `player` | The player's stats, equipment and pack |
 | `combat` | Hit chance and damage |
 | `skills` | Skills that improve by use, experience and levels |
-| `stats`, `scores`, `settings` | Counts kept over a run; the saved high score list; saved settings |
+| `stats`, `scores`, `settings` | Counts kept over a run; the score and the saved high score list; saved settings |
 | `trap` | Hidden traps: placing, noticing and springing them |
 | `item`, `inventory` | Item definitions and spawning; picking up, equipping and using items |
 | `lore` | Per-run item appearances, what the player has identified, and item names |
