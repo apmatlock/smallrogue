@@ -502,7 +502,7 @@ impl Kind {
                 max_hp: 32,
                 accuracy: 7,
                 dodge: 5,
-                damage: (4, 10),
+                damage: (3, 8),
                 armor: 2,
                 verb: "bites",
                 xp: 30,
