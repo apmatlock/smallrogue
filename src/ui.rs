@@ -370,6 +370,7 @@ pub fn help_lines() -> Vec<Line> {
         [
             "arrows or hjkl   move, or attack by moving into",
             "yubn             move diagonally",
+            "numpad 1-9       move in any direction; 5 waits",
             ".                wait a turn (rest)",
             ">                descend, or walk to seen stairs",
             "x                explore until something happens",

@@ -172,7 +172,9 @@ fn map_key(key: KeyEvent) -> Option<Command> {
     match key.code {
         // Capital Q, so a slip of the finger can't end a run.
         KeyCode::Char('Q') => Some(Command::Quit),
-        KeyCode::Char('.') => Some(Command::Act(Action::Wait)),
+        // The numpad's 5 sends KeypadBegin in some terminals with Num
+        // Lock off; Windows doesn't report it at all then.
+        KeyCode::Char('.' | '5') | KeyCode::KeypadBegin => Some(Command::Act(Action::Wait)),
         KeyCode::Char('>') => Some(Command::Descend),
         KeyCode::Char('x') => Some(Command::Explore),
         KeyCode::Char('R') => Some(Command::Rest),
@@ -194,17 +196,19 @@ fn map_key(key: KeyEvent) -> Option<Command> {
     }
 }
 
-/// The movement keys: arrows, vi keys (hjkl) and vi diagonals (yubn).
+/// The movement keys: arrows, vi keys (hjkl) and vi diagonals (yubn),
+/// and the numpad. With Num Lock on the numpad sends digits; with it
+/// off, arrows for 2468 and Home, Page Up, End and Page Down for 7913.
 fn direction(code: KeyCode) -> Option<Point> {
     let (x, y) = match code {
-        KeyCode::Left | KeyCode::Char('h') => (-1, 0),
-        KeyCode::Right | KeyCode::Char('l') => (1, 0),
-        KeyCode::Up | KeyCode::Char('k') => (0, -1),
-        KeyCode::Down | KeyCode::Char('j') => (0, 1),
-        KeyCode::Char('y') => (-1, -1),
-        KeyCode::Char('u') => (1, -1),
-        KeyCode::Char('b') => (-1, 1),
-        KeyCode::Char('n') => (1, 1),
+        KeyCode::Left | KeyCode::Char('h' | '4') => (-1, 0),
+        KeyCode::Right | KeyCode::Char('l' | '6') => (1, 0),
+        KeyCode::Up | KeyCode::Char('k' | '8') => (0, -1),
+        KeyCode::Down | KeyCode::Char('j' | '2') => (0, 1),
+        KeyCode::Home | KeyCode::Char('y' | '7') => (-1, -1),
+        KeyCode::PageUp | KeyCode::Char('u' | '9') => (1, -1),
+        KeyCode::End | KeyCode::Char('b' | '1') => (-1, 1),
+        KeyCode::PageDown | KeyCode::Char('n' | '3') => (1, 1),
         _ => return None,
     };
     Some(Point::new(x, y))
@@ -247,5 +251,32 @@ mod tests {
         assert!(matches!(map_key(q), Some(Command::Use(Verb::Drink))));
         let esc = key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(map_key(esc).is_none(), "Escape no longer quits");
+    }
+
+    #[test]
+    fn the_numpad_moves_and_waits_with_num_lock_on_or_off() {
+        // Each numpad key, as a digit (Num Lock on) and as what it sends
+        // with Num Lock off, against the vi key for the same move.
+        let pairs = [
+            ('7', KeyCode::Home, 'y'),
+            ('8', KeyCode::Up, 'k'),
+            ('9', KeyCode::PageUp, 'u'),
+            ('4', KeyCode::Left, 'h'),
+            ('6', KeyCode::Right, 'l'),
+            ('1', KeyCode::End, 'b'),
+            ('2', KeyCode::Down, 'j'),
+            ('3', KeyCode::PageDown, 'n'),
+        ];
+        for (digit, unlocked, vi) in pairs {
+            let want = direction(KeyCode::Char(vi));
+            assert!(want.is_some());
+            assert_eq!(direction(KeyCode::Char(digit)), want, "{digit}");
+            assert_eq!(direction(unlocked), want, "{unlocked:?}");
+        }
+        for code in [KeyCode::Char('5'), KeyCode::KeypadBegin] {
+            let cmd = map_key(key(code, KeyModifiers::NONE));
+            assert!(matches!(cmd, Some(Command::Act(Action::Wait))), "{code:?}");
+        }
+        assert_eq!(direction(KeyCode::Char('5')), None, "5 is no direction");
     }
 }

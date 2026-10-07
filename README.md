@@ -74,6 +74,7 @@ This plays seeds 1 to 200, printing a line as each run finishes, then the averag
 | --- | --- |
 | Arrow keys or `h`, `j`, `k`, `l` | Move left, down, up, right |
 | `y`, `u`, `b`, `n` | Move diagonally: up-left, up-right, down-left, down-right |
+| Numpad `1`-`9` | Move in the direction of the key; `5` waits. Works with Num Lock on or off, except that `5` needs Num Lock on in Windows terminals |
 | Move into a monster | Attack it |
 | Move into a closed door | Open it |
 | `.` | Wait one turn (rest) |
